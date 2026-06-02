@@ -1,5 +1,10 @@
-# Dados do usuário — NUNCA versionar (SQLs de input, outputs, persistência do projeto)
-/data/
+# Dados do usuário — NUNCA versionar (outputs, project.dbml, canvas.json, SQLs locais)
+/data/*
+# Exceção: exemplo canônico versionado para import
+!data/input/
+data/input/*
+!data/input/demo_lakehouse.sql
+!data/input/README.md
 
 # SQLs locais / fixtures temporários (ex.: exports de domínio)
 tmp/
