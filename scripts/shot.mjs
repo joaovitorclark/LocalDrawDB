@@ -1,0 +1,12 @@
+import { chromium } from 'playwright-core';
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
+await page.goto('http://localhost:5192/', { waitUntil: 'networkidle' });
+await page.waitForSelector('.table-node');
+await page.waitForTimeout(600);
+await page.locator('.react-flow__node').nth(1).hover();
+await page.waitForTimeout(300);
+await page.screenshot({ path: '/tmp/ldd-shot.png' });
+await browser.close();
+console.log('shot saved');

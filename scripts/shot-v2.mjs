@@ -1,0 +1,16 @@
+import { chromium } from 'playwright-core';
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 880 } });
+const errors = [];
+page.on('pageerror', (e) => errors.push(String(e)));
+await page.goto('http://localhost:5192/', { waitUntil: 'networkidle' });
+await page.waitForSelector('.table-node');
+await page.waitForTimeout(500);
+const groupBoxes = await page.locator('.group-node').count();
+await page.locator('.react-flow__node[data-id="loja.pedido"]').hover();
+await page.waitForTimeout(300);
+await page.screenshot({ path: '/tmp/ldd-v2.png' });
+await browser.close();
+console.log('group boxes:', groupBoxes, '| erros:', errors.length ? errors : 'nenhum');
+process.exit(groupBoxes >= 1 && errors.length === 0 ? 0 : 1);

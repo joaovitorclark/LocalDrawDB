@@ -1,0 +1,17 @@
+# Dados do usuário — NUNCA versionar (SQLs de input, outputs, persistência do projeto)
+/data/
+
+# Dependências e builds
+node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# Arquivos de amostra grandes / proprietários
+*.erwin
+*.xlsx
+
+# Sistema
+.DS_Store
+.env
+.env.local
