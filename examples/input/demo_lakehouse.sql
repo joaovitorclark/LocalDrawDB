@@ -1,6 +1,7 @@
 -- =============================================================================
--- Exemplo canônico — data/input/demo_lakehouse.sql
--- Importar via toolbar: "Importar (input/)"
+-- Exemplo canônico — examples/input/demo_lakehouse.sql
+-- Copie para data/input/ e use "Importar (input/)" na toolbar:
+--   cp examples/input/demo_lakehouse.sql data/input/
 --
 -- Metadados (acima de cada CREATE):
 --   @layer   → LayerGroup no DBML

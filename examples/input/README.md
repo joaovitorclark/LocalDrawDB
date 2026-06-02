@@ -1,6 +1,17 @@
-# Pasta `data/input/` — formato dos arquivos SQL
+# Exemplos de import SQL (versionados)
 
-Coloque aqui scripts `.sql` exportados do banco (Oracle, Spark/Delta, ANSI). O botão **Importar (input/)** mescla tudo no DBML do projeto.
+Estes arquivos ficam no repositório em `examples/input/`. O app importa de **`data/input/`** (pasta local, no `.gitignore`).
+
+```bash
+mkdir -p data/input
+cp examples/input/demo_lakehouse.sql data/input/
+```
+
+Depois use **Importar (input/)** na toolbar.
+
+## Formato dos `.sql` em `data/input/`
+
+Coloque seus scripts exportados do banco (Oracle, Spark/Delta, ANSI). O import mescla tudo no DBML do projeto.
 
 ## Metadados (comentários `-- @…`)
 

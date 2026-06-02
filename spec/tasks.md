@@ -49,7 +49,7 @@ Ordem de execução derivada de [`spec.md`](./spec.md) + [`plan.md`](./plan.md).
 - [x] Records filtrados por tabela/grupo; `@note` só em Records no import
 - [x] SQL import: Oracle/Spark, `@fk`, FK no DDL, PK composta, `COMMENT ON`
 - [x] ColumnPanel: FK via `ref:`; export `indexes { (a,b) [pk] }`
-- [x] demo_lakehouse.sql + README em `data/input/`
+- [x] demo_lakehouse.sql + README em `examples/input/` (copiar para `data/input/`)
 
 ## Fase v6 — Usabilidade e validação (roadmap)
 - [x] Busca de tabelas no painel + Outline; `fitView` no canvas

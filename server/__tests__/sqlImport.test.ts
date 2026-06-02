@@ -64,7 +64,7 @@ describe('sqlToModel composite PK', () => {
 
 describe('demo_lakehouse.sql', () => {
   it('não gera refs inválidas nem quebra o parse do DBML', () => {
-    const sql = readFileSync(join(process.cwd(), 'data/input/demo_lakehouse.sql'), 'utf8');
+    const sql = readFileSync(join(process.cwd(), 'examples/input/demo_lakehouse.sql'), 'utf8');
     const m = sqlToModel(sql);
     const bogus = m.refs.find((r) => r.from.column === 'col' || r.to.table === 'tabela');
     expect(bogus).toBeUndefined();

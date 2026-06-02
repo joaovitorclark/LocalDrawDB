@@ -33,7 +33,7 @@ npm start          # http://localhost:5174
 - **Undo/Redo** (↶ ↷ ou Cmd/Ctrl+Z e Cmd/Ctrl+Shift+Z): histórico global (texto + canvas).
 - **Organize**: reordena o DBML em `tabelas → refs → records → lineage` (preserva comentários).
 - **+ Tabela / + Metadados**: nova tabela ou snippet de colunas lakehouse padrão.
-- **Importar (input/)**: mescla `.sql` de `data/input/` (Spark, Oracle, `@layer`/`@group`/`@note`/`@fk`, `COMMENT ON`, PK composta).
+- **Importar (input/)**: mescla `.sql` de `data/input/` (Spark, Oracle, `@layer`/`@group`/`@note`/`@fk`, `COMMENT ON`, PK composta). Exemplo versionado em [`examples/input/`](examples/input/) — copie para `data/input/`.
 - **Export DDL / dbt / erwin / Mermaid / PNG**: artefatos em `data/output/`.
 
 ### Interações no canvas
@@ -68,7 +68,8 @@ Blocos `Records` preservados; painel **Dados (amostra)** filtra por tabela/grupo
 
 ```
 data/
-├─ input/         # .sql para importar (veja data/input/README.md)
+├─ input/         # seus .sql locais (não versionados)
+examples/input/   # demo_lakehouse.sql + README (copiar para data/input/)
 ├─ output/        # DDL, dbt, erwin, Mermaid, PNG
 ├─ project.dbml   # fonte de verdade do modelo
 └─ canvas.json    # posições, cores, grupos colapsados
