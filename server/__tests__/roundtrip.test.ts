@@ -36,6 +36,22 @@ describe('import SQL -> modelo', () => {
     expect(pk.pk).toBe(true);
     expect(pk.nullable).toBe(false);
   });
+
+  it('fallback: importa tipos fora da lista do parser (ex.: VARBINARY)', () => {
+    const sql = `CREATE TABLE IF NOT EXISTS t (
+      id BIGINT NOT NULL,
+      payload VARBINARY,
+      valor DECIMAL(18,2),
+      PRIMARY KEY (id)
+    ) USING DELTA;`;
+    const [t] = sqlToTables(sql);
+    expect(t.columns.map((c) => c.name)).toEqual(['id', 'payload', 'valor']);
+    expect(t.columns.find((c) => c.name === 'payload')!.type).toBe('varbinary');
+    expect(t.columns.find((c) => c.name === 'valor')!.args).toBe('18,2');
+    const id = t.columns.find((c) => c.name === 'id')!;
+    expect(id.pk).toBe(true);
+    expect(id.nullable).toBe(false);
+  });
 });
 
 describe('round-trip modelo <-> DBML', () => {

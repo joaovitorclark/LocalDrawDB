@@ -4,12 +4,13 @@ import { splitDbmlBlocks } from './blocks';
 import { parseRecords, type ParsedRecords } from './records';
 
 export type Cardinality = '*' | '1';
-export type ColumnView = { name: string; type: string; pk: boolean; notNull: boolean };
+export type ColumnView = { name: string; type: string; pk: boolean; notNull: boolean; note?: string };
 export type TableView = {
   id: string; // schema.tabela (ou tabela)
   name: string;
   schema?: string;
   group?: string;
+  note?: string;
   columns: ColumnView[];
 };
 export type RefView = {
@@ -80,11 +81,13 @@ export function parseDbml(dbml: string): ParseResult {
         name: t.name,
         schema: schemaName,
         group: t.group?.name || undefined,
+        note: t.note || undefined,
         columns: t.fields.map((f: any) => ({
           name: f.name,
           type: f.type.type_name,
           pk: !!f.pk,
           notNull: !!f.not_null,
+          note: f.note || undefined,
         })),
       });
     }

@@ -2,6 +2,7 @@
 // node-sql-parser (dialeto hive) não entende cláusulas Spark de tabela (USING,
 // PARTITIONED BY, TBLPROPERTIES, LOCATION, ...), então pré-processamos o texto.
 import { createRequire } from 'node:module';
+import { parseTypeName } from './model.ts';
 import type { Column, Model, Table } from './model.ts';
 
 // node-sql-parser é CommonJS e não expõe export nomeado sob ESM; carregamos via require.
@@ -54,46 +55,104 @@ function sanitizeCreateTable(stmt: string): { schema?: string; name: string; bod
   return { schema, name, body };
 }
 
+/** Divide o corpo de colunas por vírgulas top-level (respeita parênteses). */
+function splitTopLevel(inner: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of inner) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
+/**
+ * Fallback baseado em regex (aceita QUALQUER tipo) para quando o node-sql-parser
+ * falha — ex.: tipos como VARBINARY/BINARY fora da lista suportada por ele.
+ */
+function parseColumnsFallback(body: string): Column[] {
+  const inner = body.trim().replace(/^\(/, '').replace(/\)$/, '');
+  const pk = new Set<string>();
+  const columns: Column[] = [];
+
+  for (const part of splitTopLevel(inner)) {
+    const pkm = /^primary\s+key\s*\(([^)]*)\)/i.exec(part);
+    if (pkm) {
+      pkm[1].split(',').forEach((c) => pk.add(c.replace(/[`"\s]/g, '')));
+      continue;
+    }
+    if (/^(constraint|foreign\s+key|unique|key|index)\b/i.test(part)) continue;
+
+    const m = /^([`"]?[A-Za-z_][\w]*[`"]?)\s+(.+)$/.exec(part);
+    if (!m) continue;
+    const name = m[1].replace(/[`"]/g, '');
+    const rest = m[2];
+    const typeMatch = /^([A-Za-z0-9_]+(?:\s*\([^)]*\))?)/.exec(rest);
+    const { base, args } = parseTypeName(typeMatch ? typeMatch[1] : rest);
+    columns.push({
+      name,
+      type: base,
+      args,
+      nullable: /\bnot\s+null\b/i.test(rest) ? false : true,
+    });
+  }
+
+  for (const c of columns) if (pk.has(c.name)) {
+    c.pk = true;
+    c.nullable = false;
+  }
+  return columns;
+}
+
 /** Converte um único statement CREATE TABLE em uma Table (ou null). */
 export function createTableToTable(stmt: string): Table | null {
   const san = sanitizeCreateTable(stmt);
   if (!san) return null;
 
-  let ast: any;
+  let columns: Column[] = [];
   try {
-    ast = sqlParser.astify(`CREATE TABLE ${san.name} ${san.body}`, { database: 'hive' });
-  } catch {
-    return null;
-  }
-  const node = Array.isArray(ast) ? ast[0] : ast;
-  const defs: any[] = node.create_definitions ?? [];
+    const ast = sqlParser.astify(`CREATE TABLE ${san.name} ${san.body}`, { database: 'hive' });
+    const node = Array.isArray(ast) ? ast[0] : ast;
+    const defs: any[] = node.create_definitions ?? [];
 
-  const pkCols = new Set<string>();
-  for (const d of defs) {
-    if (d.resource === 'constraint' && d.constraint_type === 'primary key') {
-      for (const c of d.definition ?? []) pkCols.add(c.column);
+    const pkCols = new Set<string>();
+    for (const d of defs) {
+      if (d.resource === 'constraint' && d.constraint_type === 'primary key') {
+        for (const c of d.definition ?? []) pkCols.add(c.column);
+      }
     }
+    for (const d of defs) {
+      if (d.resource !== 'column') continue;
+      const colName = d.column.column;
+      const def = d.definition ?? {};
+      const args =
+        def.length != null
+          ? def.scale != null
+            ? `${def.length},${def.scale}`
+            : `${def.length}`
+          : undefined;
+      columns.push({
+        name: colName,
+        type: String(def.dataType ?? 'string').toLowerCase(),
+        args,
+        pk: pkCols.has(colName),
+        nullable: d.nullable?.type === 'not null' ? false : true,
+      });
+    }
+  } catch {
+    // tipos não suportados pelo node-sql-parser -> fallback abaixo
   }
 
-  const columns: Column[] = [];
-  for (const d of defs) {
-    if (d.resource !== 'column') continue;
-    const colName = d.column.column;
-    const def = d.definition ?? {};
-    const args =
-      def.length != null
-        ? def.scale != null
-          ? `${def.length},${def.scale}`
-          : `${def.length}`
-        : undefined;
-    columns.push({
-      name: colName,
-      type: String(def.dataType ?? 'string').toLowerCase(),
-      args,
-      pk: pkCols.has(colName),
-      nullable: d.nullable?.type === 'not null' ? false : true,
-    });
-  }
+  // Fallback robusto quando o parser falhou ou não extraiu colunas.
+  if (!columns.length) columns = parseColumnsFallback(san.body);
 
   if (!columns.length) return null;
   return { name: san.name, schema: san.schema, columns };

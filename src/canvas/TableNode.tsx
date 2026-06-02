@@ -3,22 +3,21 @@ import { Handle, Position } from 'reactflow';
 import type { TableView } from '../dsl/parse';
 import { useInteraction } from '../store/interaction';
 import { useCanvasActions, TABLE_COLORS } from './actions';
+import { TableInfoPopover } from './TableInfoPopover';
 
-// Nó customizado: tabela com colunas, handles por coluna (drag-to-create), cor e
-// edição inline (renomear coluna, adicionar coluna).
+// Nó customizado: tabela com colunas, handles por coluna (drag-to-create / linhagem),
+// cor (override ou por camada), atribuição de camada, edição inline e ícone ⓘ.
 export function TableNode({ data }: { data: TableView }) {
   const actions = useCanvasActions();
   const selected = useInteraction((s) => s.selectedColumn);
   const [palette, setPalette] = useState(false);
+  const [info, setInfo] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
-  const color = actions.colorOf(data.id) ?? '#13284b';
+  const color = actions.colorOf(data.id) ?? actions.layerColorOf(actions.layerOf(data.id)) ?? '#13284b';
+  const meta = actions.tableMeta(data.id);
 
-  const startEdit = (col: string) => {
-    setEditing(col);
-    setDraft(col);
-  };
   const commitEdit = (oldName: string) => {
     const v = draft.trim();
     if (v && v !== oldName) actions.onRenameColumn(data.id, oldName, v);
@@ -40,9 +39,19 @@ export function TableNode({ data }: { data: TableView }) {
           {data.schema && <span className="table-node__schema">{data.schema}.</span>}
           {data.name}
         </span>
+        {meta.has && (
+          <span
+            className="table-node__info"
+            onMouseEnter={() => setInfo(true)}
+            onMouseLeave={() => setInfo(false)}
+          >
+            ⓘ
+            {info && <TableInfoPopover meta={meta} />}
+          </span>
+        )}
         <button
           className="table-node__color"
-          title="Cor da tabela"
+          title="Cor / camada da tabela"
           onClick={(e) => {
             e.stopPropagation();
             setPalette((p) => !p);
@@ -52,19 +61,20 @@ export function TableNode({ data }: { data: TableView }) {
         </button>
         {palette && (
           <div className="color-palette" onClick={(e) => e.stopPropagation()}>
-            {TABLE_COLORS.map((c) => (
-              <button
-                key={c}
-                style={{ background: c }}
-                onClick={() => {
-                  actions.onSetColor(data.id, c);
-                  setPalette(false);
-                }}
-              />
-            ))}
-            <button className="color-reset" onClick={() => { actions.onSetColor(data.id, null); setPalette(false); }}>
-              ✕
-            </button>
+            <div className="color-palette__row">
+              {TABLE_COLORS.map((c) => (
+                <button key={c} style={{ background: c }} onClick={() => { actions.onSetColor(data.id, c); setPalette(false); }} />
+              ))}
+              <button className="color-reset" title="Sem cor (usar camada)" onClick={() => { actions.onSetColor(data.id, null); setPalette(false); }}>✕</button>
+            </div>
+            <div className="color-palette__layers">
+              {actions.layers.map((l) => (
+                <button key={l.id} className="layer-pick" onClick={() => { actions.onSetLayer(data.id, l.id); setPalette(false); }}>
+                  <span className="layer-dot" style={{ background: l.color }} /> {l.name}
+                </button>
+              ))}
+              <button className="layer-pick" onClick={() => { actions.onSetLayer(data.id, null); setPalette(false); }}>sem camada</button>
+            </div>
           </div>
         )}
       </div>
@@ -93,7 +103,7 @@ export function TableNode({ data }: { data: TableView }) {
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span className="col-name" onDoubleClick={(e) => { e.stopPropagation(); startEdit(c.name); }}>
+                <span className="col-name" onDoubleClick={(e) => { e.stopPropagation(); setEditing(c.name); setDraft(c.name); }}>
                   {c.pk ? '🔑 ' : ''}
                   {c.name}
                   {c.notNull ? <span className="col-nn">NN</span> : null}

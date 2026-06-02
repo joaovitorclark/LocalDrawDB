@@ -1,9 +1,15 @@
 // Cliente da API /api (mesma origem em prod; proxy do Vite em dev).
 
 export type Project = { dbml: string; canvas: CanvasState };
+export type Layer = { id: string; name: string; color: string };
+export type LineageLink = { source: string; target: string };
 export type CanvasState = {
   positions?: Record<string, { x: number; y: number }>;
   colors?: Record<string, string>;
+  layers?: Record<string, string>; // tableId -> layerId
+  customLayers?: Layer[];
+  lineage?: LineageLink[];
+  collapsedGroups?: string[];
 };
 
 async function post<T>(url: string, body: unknown): Promise<T> {

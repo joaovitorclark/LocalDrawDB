@@ -7,9 +7,13 @@ import { appendRef, removeRef, renameColumn, renameTable, addColumn } from './ds
 import { RecordsPanel } from './records/RecordsPanel';
 import { ColumnPanel } from './canvas/ColumnPanel';
 import { CanvasActionsCtx, type CanvasActions } from './canvas/actions';
+import { LayersPanel } from './canvas/LayersPanel';
+import { allLayers, layerColorOf } from './layers';
+import { addLineage, removeLineage } from './dsl/lineage';
 import { useInteraction } from './store/interaction';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import * as api from './api';
+import type { Layer, LineageLink } from './api';
 
 type Positions = Record<string, { x: number; y: number }>;
 type Colors = Record<string, string>;
@@ -35,6 +39,10 @@ export default function App() {
   const [dbml, setDbml] = useState('');
   const [positions, setPositions] = useState<Positions>({});
   const [colors, setColors] = useState<Colors>({});
+  const [layerMap, setLayerMap] = useState<Record<string, string>>({});
+  const [customLayers, setCustomLayers] = useState<Layer[]>([]);
+  const [lineage, setLineage] = useState<LineageLink[]>([]);
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [status, setStatus] = useState('Carregando…');
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const loadedRef = useRef(false);
@@ -57,6 +65,10 @@ export default function App() {
         setDbml(dbml0);
         setPositions(pos0);
         setColors(col0);
+        setLayerMap(p.canvas?.layers ?? {});
+        setCustomLayers(p.canvas?.customLayers ?? []);
+        setLineage(p.canvas?.lineage ?? []);
+        setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
         baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
         setStatus('Pronto');
       })
@@ -151,12 +163,14 @@ export default function App() {
     setSaveState('saving');
     const id = setTimeout(() => {
       api
-        .saveProject(dbml, { positions, colors })
+        .saveProject(dbml, { positions, colors, layers: layerMap, customLayers, lineage, collapsedGroups })
         .then(() => setSaveState('saved'))
         .catch(() => setSaveState('error'));
     }, 800);
     return () => clearTimeout(id);
-  }, [dbml, positions, colors]);
+  }, [dbml, positions, colors, layerMap, customLayers, lineage, collapsedGroups]);
+
+  const layersArr = useMemo(() => allLayers(customLayers), [customLayers]);
 
   // Ações do canvas (mutações de documento e cores) expostas via contexto.
   const actions = useMemo<CanvasActions>(
@@ -174,9 +188,46 @@ export default function App() {
           else delete next[id];
           return next;
         }),
+      layerOf: (id) => layerMap[id],
+      layerColorOf: (layerId) => layerColorOf(layersArr, layerId),
+      onSetLayer: (id, layerId) =>
+        setLayerMap((prev) => {
+          const next = { ...prev };
+          if (layerId) next[id] = layerId;
+          else delete next[id];
+          return next;
+        }),
+      layers: layersArr,
+      onAddLayer: (name, color) =>
+        setCustomLayers((prev) => [...prev, { id: name.toLowerCase().replace(/\s+/g, '_'), name, color }]),
+      onToggleGroup: (name) =>
+        setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name])),
+      tableMeta: (id) => {
+        const t = canvasModel.tables.find((x) => x.id === id);
+        const sources = lineage.filter((l) => l.target === id).map((l) => l.source);
+        const rec = canvasModel.records.find((r) => r.table === id || r.table === t?.name);
+        const sample = rec ? { columns: rec.columns, rows: rec.rows } : null;
+        const pks = t ? t.columns.filter((c) => c.pk).map((c) => c.name) : [];
+        const fks = canvasModel.refs
+          .filter((r) => r.source === id)
+          .map((r) => ({ column: r.fromCol, ref: `${r.target}.${r.toCol}` }));
+        const refsIn = [...new Set(canvasModel.refs.filter((r) => r.target === id).map((r) => r.source))];
+        const columnNotes = t
+          ? t.columns.filter((c) => c.note).map((c) => ({ column: c.name, note: c.note as string }))
+          : [];
+        const has = !!(sources.length || sample || pks.length || fks.length || refsIn.length || t?.note || columnNotes.length);
+        return { sources, sample, pks, fks, refsIn, note: t?.note, columnNotes, has };
+      },
     }),
-    [colors, selectColumn],
+    [colors, selectColumn, layerMap, layersArr, canvasModel, lineage],
   );
+
+  const handleCreateLineage = (source: string, target: string) =>
+    setLineage((prev) => addLineage(prev, source, target));
+  const handleRemoveLineage = (source: string, target: string) =>
+    setLineage((prev) => removeLineage(prev, source, target));
+  const handleToggleGroup = (name: string) =>
+    setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]));
 
   const handleCreateRef = (fromTbl: string, fromCol: string, toTbl: string, toCol: string) => {
     if (!fromCol || !toCol) return;
@@ -281,7 +332,14 @@ export default function App() {
               onPositionsChange={setPositions}
               onCreateRef={handleCreateRef}
               onRemoveRef={handleRemoveRef}
+              lineage={lineage}
+              onCreateLineage={handleCreateLineage}
+              onRemoveLineage={handleRemoveLineage}
+              layerOf={(id) => layerMap[id]}
+              collapsedGroups={collapsedGroups}
+              onToggleGroup={handleToggleGroup}
             />
+            <LayersPanel layers={layersArr} onAddLayer={actions.onAddLayer} />
             <ColumnPanel dbml={dbml} onApply={setDbml} />
           </CanvasActionsCtx.Provider>
           <RecordsPanel records={parsed.records} />
