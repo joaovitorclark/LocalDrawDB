@@ -109,6 +109,17 @@ describe('renameColumn / addColumn', () => {
   });
 });
 
+describe('setColumnSetting ref inline', () => {
+  it('adiciona ref: > e re-parseia com ref no modelo', () => {
+    const base = `Table loja.pedido {\n  id bigint [pk]\n  cliente_id bigint\n}\nTable loja.cliente {\n  id bigint [pk]\n}\n`;
+    const out = setColumnSetting(base, 'loja.pedido', 'cliente_id', {
+      refTarget: 'loja.cliente.id',
+    });
+    expect(out).toMatch(/cliente_id bigint \[ref: > loja\.cliente\.id\]/);
+    expect(parseDbml(out).refs.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('renameTable', () => {
   const WITH_REF = `Table loja.cliente {
   id bigint [pk]

@@ -9,6 +9,10 @@ type InteractionState = {
   setHovered: (id: string | null) => void;
   selectedColumn: SelectedColumn;
   selectColumn: (sel: SelectedColumn) => void;
+  selectedTable: string | null;
+  selectTable: (id: string | null) => void;
+  selectedGroup: string | null;
+  selectGroup: (id: string | null) => void;
 
   // Layers (v4): camadas ESCONDIDAS (default vazio = todas visíveis) + modo.
   hiddenLayers: Set<string>;
@@ -16,10 +20,10 @@ type InteractionState = {
   layerDimMode: boolean; // true = esmaecer escondidas; false = esconder de fato
   toggleDimMode: () => void;
 
-  // Linhagem (v4).
+  // Linhagem: visualizar arestas vs editar (modo compacto + portas).
   lineageVisible: boolean;
   toggleLineageVisible: () => void;
-  lineageMode: boolean; // arrastar tabela→tabela cria linhagem em vez de PK/FK
+  lineageMode: boolean;
   toggleLineageMode: () => void;
 };
 
@@ -28,6 +32,10 @@ export const useInteraction = create<InteractionState>((set) => ({
   setHovered: (id) => set({ hoveredTableId: id }),
   selectedColumn: null,
   selectColumn: (sel) => set({ selectedColumn: sel }),
+  selectedTable: null,
+  selectTable: (id) => set({ selectedTable: id, selectedGroup: null }),
+  selectedGroup: null,
+  selectGroup: (id) => set({ selectedGroup: id, selectedTable: null }),
 
   hiddenLayers: new Set<string>(),
   toggleLayer: (id) =>
@@ -40,8 +48,12 @@ export const useInteraction = create<InteractionState>((set) => ({
   layerDimMode: true,
   toggleDimMode: () => set((s) => ({ layerDimMode: !s.layerDimMode })),
 
-  lineageVisible: true,
+  lineageVisible: false,
   toggleLineageVisible: () => set((s) => ({ lineageVisible: !s.lineageVisible })),
   lineageMode: false,
-  toggleLineageMode: () => set((s) => ({ lineageMode: !s.lineageMode })),
+  toggleLineageMode: () =>
+    set((s) => {
+      const next = !s.lineageMode;
+      return { lineageMode: next, lineageVisible: next ? true : s.lineageVisible };
+    }),
 }));

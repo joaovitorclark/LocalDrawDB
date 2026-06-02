@@ -70,16 +70,22 @@ export function modelToDbml(model: Model): string {
 
   for (const t of model.tables) {
     out.push(`Table ${qualifiedName(t)} {`);
+    const compositeOnly = new Set(
+      (t.compositePks ?? []).filter((g) => g.length > 1).flat(),
+    );
     for (const c of t.columns) {
       const type = c.args ? `${c.type}(${c.args})` : c.type;
       const settings: string[] = [];
-      if (c.pk) settings.push('pk');
+      if (c.pk && !compositeOnly.has(c.name)) settings.push('pk');
       if (c.nullable === false) settings.push('not null');
       if (c.note) settings.push(`note: ${quoteNote(c.note)}`);
       const suffix = settings.length ? ` [${settings.join(', ')}]` : '';
       out.push(`  ${c.name} ${type}${suffix}`);
     }
-    if (t.note) out.push(`  Note: ${quoteNote(t.note)}`);
+    for (const group of t.compositePks ?? []) {
+      if (group.length > 1) out.push(`  indexes {\n    (${group.join(', ')}) [pk]\n  }`);
+    }
+    if (t.note && !t.noteInRecordsOnly) out.push(`  Note: ${quoteNote(t.note)}`);
     out.push('}');
     out.push('');
   }
@@ -103,6 +109,38 @@ export function modelToDbml(model: Model): string {
   for (const [name, members] of groups) {
     out.push(`TableGroup ${name} {`);
     for (const m of members) out.push(`  ${m}`);
+    out.push('}');
+  }
+
+  // LayerGroups a partir de @layer nos metadados de import.
+  const layers = new Map<string, string[]>();
+  for (const t of model.tables) {
+    if (t.layer) {
+      const list = layers.get(t.layer) ?? [];
+      list.push(qualifiedName(t));
+      layers.set(t.layer, list);
+    }
+  }
+  if (layers.size) out.push('');
+  for (const [name, members] of layers) {
+    out.push(`LayerGroup ${name} {`);
+    for (const m of members) out.push(`  ${m}`);
+    out.push('}');
+  }
+
+  // Records a partir de INSERTs (note de import vai aqui, não no Table).
+  for (const t of model.tables) {
+    const hasRows = t.records && t.records.rows.length;
+    const hasImportNote = t.note && (t.noteInRecordsOnly || hasRows);
+    if (!hasRows && !hasImportNote) continue;
+    const qn = qualifiedName(t);
+    const colHeader = t.records?.columns.length ? `(${t.records.columns.join(', ')})` : '';
+    out.push('');
+    out.push(`Records ${qn}${colHeader} {`);
+    if (hasImportNote && t.note) out.push(`  Note: ${quoteNote(t.note)}`);
+    for (const row of t.records?.rows ?? []) {
+      out.push(`  ${row.map((v) => (/[,']/.test(v) ? `'${v}'` : v)).join(', ')}`);
+    }
     out.push('}');
   }
 

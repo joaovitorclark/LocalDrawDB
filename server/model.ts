@@ -14,7 +14,12 @@ export type Table = {
   schema?: string; // namespace/banco
   columns: Column[];
   note?: string;
+  /** Note do import (@note): exportar só no bloco Records, não no Table. */
+  noteInRecordsOnly?: boolean;
   group?: string; // TableGroup (organização visual)
+  layer?: string; // LayerGroup (import metadata)
+  records?: { columns: string[]; rows: string[][] }; // sample data from INSERTs
+  compositePks?: string[][]; // PK composta, ex.: [['period','region']]
 };
 
 export type Ref = {

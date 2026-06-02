@@ -97,3 +97,130 @@ describe('extractRecords + parseRecords', () => {
     ]);
   });
 });
+
+// ---- LayerGroup ----
+
+import { parseLayerGroup, parseDbml } from '../parse';
+import { layersFromGroups, tableLayerMap } from '../../layers';
+import { setTableLayer, addLayerGroup } from '../edit';
+
+const DBML_WITH_LAYERS = `Table raw.orders {
+  id bigint [pk]
+}
+
+Table raw.customers {
+  id bigint [pk]
+}
+
+Table silver.dim_customer {
+  id bigint [pk]
+}
+
+LayerGroup bronze [color: #b08d57] {
+  raw.orders
+  raw.customers
+}
+
+LayerGroup prata [color: #aaa] {
+  silver.dim_customer
+}
+`;
+
+describe('splitDbmlBlocks reconhece layerGroup', () => {
+  it('detecta blocos layerGroup', () => {
+    const blocks = splitDbmlBlocks(DBML_WITH_LAYERS);
+    const lgs = blocks.filter((b) => b.type === 'layerGroup');
+    expect(lgs).toHaveLength(2);
+  });
+});
+
+describe('parseLayerGroup', () => {
+  it('extrai nome, cor e tabelas', () => {
+    const lg = parseLayerGroup('LayerGroup bronze [color: #b08d57] {\n  raw.orders\n  raw.customers\n}');
+    expect(lg).not.toBeNull();
+    expect(lg!.id).toBe('bronze');
+    expect(lg!.name).toBe('bronze');
+    expect(lg!.color).toBe('#b08d57');
+    expect(lg!.tables).toEqual(['raw.orders', 'raw.customers']);
+  });
+
+  it('funciona sem cor', () => {
+    const lg = parseLayerGroup('LayerGroup staging {\n  stg.events\n}');
+    expect(lg).not.toBeNull();
+    expect(lg!.id).toBe('staging');
+    expect(lg!.color).toBeUndefined();
+    expect(lg!.tables).toEqual(['stg.events']);
+  });
+});
+
+describe('parse extrai layerGroups sem quebrar', () => {
+  it('parseDbml retorna layerGroups e tabelas corretamente', () => {
+    const result = parseDbml(DBML_WITH_LAYERS);
+    expect(result.error).toBeUndefined();
+    expect(result.tables).toHaveLength(3);
+    expect(result.layerGroups).toHaveLength(2);
+    expect(result.layerGroups[0].id).toBe('bronze');
+    expect(result.layerGroups[0].tables).toEqual(['raw.orders', 'raw.customers']);
+    expect(result.layerGroups[1].id).toBe('prata');
+  });
+});
+
+describe('tableLayerMap + auto-schema', () => {
+  it('monta mapa tabela→camada', () => {
+    const result = parseDbml(DBML_WITH_LAYERS);
+    const map = tableLayerMap(result.layerGroups);
+    expect(map['raw.orders']).toBe('bronze');
+    expect(map['raw.customers']).toBe('bronze');
+    expect(map['silver.dim_customer']).toBe('prata');
+  });
+});
+
+describe('layersFromGroups', () => {
+  it('sobrepõe cor de built-in e adiciona camadas novas', () => {
+    const groups = [
+      { id: 'bronze', name: 'bronze', color: '#custom', tables: [] },
+      { id: 'custom_layer', name: 'Custom', color: '#ff0000', tables: [] },
+    ];
+    const layers = layersFromGroups(groups);
+    expect(layers.find((l) => l.id === 'bronze')!.color).toBe('#custom');
+    expect(layers.find((l) => l.id === 'prata')!.color).toBe('#9ca3af'); // built-in intacto
+    expect(layers.find((l) => l.id === 'custom_layer')).toBeTruthy();
+  });
+});
+
+describe('edit.setTableLayer', () => {
+  it('adiciona tabela a camada existente', () => {
+    const src = `Table x {\n  id bigint [pk]\n}\n\nLayerGroup bronze [color: #b08d57] {\n  raw.orders\n}\n`;
+    const out = setTableLayer(src, 'x', 'bronze');
+    expect(out).toContain('x');
+    expect(out).toContain('raw.orders');
+    expect(parseDbml(out).error).toBeUndefined();
+  });
+
+  it('remove tabela da camada (layerId=null)', () => {
+    const src = `Table raw.orders {\n  id bigint [pk]\n}\n\nLayerGroup bronze [color: #b08d57] {\n  raw.orders\n}\n`;
+    const out = setTableLayer(src, 'raw.orders', null);
+    const lg = parseDbml(out).layerGroups.find((g) => g.id === 'bronze');
+    expect(lg?.tables).not.toContain('raw.orders');
+  });
+
+  it('cria bloco LayerGroup se não existir', () => {
+    const src = `Table x {\n  id bigint [pk]\n}\n`;
+    const out = setTableLayer(src, 'x', 'ouro', '#d4af37');
+    expect(out).toContain('LayerGroup ouro');
+    expect(out).toContain('x');
+    expect(parseDbml(out).error).toBeUndefined();
+  });
+});
+
+describe('organize preserva LayerGroup', () => {
+  it('LayerGroup aparece após tableGroup e antes de records', () => {
+    const src = `Records t(a) {\n  1\n}\n\nLayerGroup bronze {\n  raw.x\n}\n\nTable raw.x {\n  a int\n}\n`;
+    const out = organize(src);
+    const lgIdx = out.indexOf('LayerGroup');
+    const recIdx = out.indexOf('Records');
+    const tblIdx = out.indexOf('Table');
+    expect(tblIdx).toBeLessThan(lgIdx);
+    expect(lgIdx).toBeLessThan(recIdx);
+  });
+});

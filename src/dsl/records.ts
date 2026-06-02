@@ -5,6 +5,7 @@ export type ParsedRecords = {
   table: string;
   columns: string[];
   rows: string[][];
+  note?: string;
   raw: string;
 };
 
@@ -49,11 +50,17 @@ export function parseRecords(block: string): ParsedRecords | null {
   const inner = end >= 0 ? body.slice(0, end) : body;
 
   const rows: string[][] = [];
+  let note: string | undefined;
   for (const rawLine of inner.split('\n')) {
     const line = rawLine.trim();
     if (!line || line.startsWith('//')) continue;
+    const noteMatch = /^Note\s*:\s*'([^']*)'/i.exec(line);
+    if (noteMatch) {
+      note = noteMatch[1];
+      continue;
+    }
     rows.push(splitCsvLine(line));
   }
 
-  return { table, columns, rows, raw: block };
+  return { table, columns, rows, note, raw: block };
 }

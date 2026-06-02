@@ -8,7 +8,9 @@ const ORDER: BlockType[] = [
   'enum',
   'table',
   'tableGroup',
+  'layerGroup',
   'ref',
+  'lineage',
   'records',
 ];
 

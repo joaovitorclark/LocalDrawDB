@@ -1,6 +1,9 @@
 # Dados do usuário — NUNCA versionar (SQLs de input, outputs, persistência do projeto)
 /data/
 
+# SQLs locais / fixtures temporários (ex.: exports de domínio)
+tmp/
+
 # Dependências e builds
 node_modules/
 dist/

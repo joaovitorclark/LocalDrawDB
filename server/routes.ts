@@ -1,7 +1,7 @@
 // Rotas da API /api — import, persistência e exports.
 import type { FastifyInstance } from 'fastify';
 import { dbmlToModel, modelToDbml } from './dbmlIo.ts';
-import { mergeTables, sqlToTables } from './sqlImport.ts';
+import { mergeModel, sqlToModel } from './sqlImport.ts';
 import { sparkDDLBySchema } from './ddl/spark.ts';
 import { modelToErwinDDL } from './ddl/erwin.ts';
 import { modelToMermaid } from './ddl/mermaid.ts';
@@ -50,10 +50,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     let merged = model;
     const imported: string[] = [];
     for (const { file, content } of inputs) {
-      const tables = sqlToTables(content);
-      if (tables.length) {
-        merged = mergeTables(merged, tables);
-        imported.push(`${file} (${tables.length} tabela(s))`);
+      const incoming = sqlToModel(content);
+      if (incoming.tables.length) {
+        merged = mergeModel(merged, incoming);
+        const refCount = incoming.refs.length;
+        imported.push(
+          `${file} (${incoming.tables.length} tabela(s)${refCount ? `, ${refCount} ref(s)` : ''})`,
+        );
       }
     }
     return { dbml: modelToDbml(merged), imported };

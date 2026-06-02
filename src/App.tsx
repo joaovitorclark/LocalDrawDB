@@ -2,27 +2,39 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Editor } from './editor/Editor';
 import { Canvas } from './canvas/Canvas';
 import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from './dsl/parse';
+import { validateModel } from './dsl/validateModel';
 import { organize } from './dsl/organize';
-import { appendRef, removeRef, renameColumn, renameTable, addColumn } from './dsl/edit';
+import { autolayoutPositions } from './canvas/autolayout';
+import { ProblemsPanel } from './canvas/ProblemsPanel';
+import { appendRef, removeRef, renameColumn, renameTable, addColumn, setTableLayer, addLayerGroup, addLineageEntry, removeLineageEntry } from './dsl/edit';
 import { RecordsPanel } from './records/RecordsPanel';
 import { ColumnPanel } from './canvas/ColumnPanel';
 import { CanvasActionsCtx, type CanvasActions } from './canvas/actions';
 import { LayersPanel } from './canvas/LayersPanel';
-import { allLayers, layerColorOf } from './layers';
-import { addLineage, removeLineage } from './dsl/lineage';
+import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import * as api from './api';
-import type { Layer, LineageLink } from './api';
+import type { LineageLink } from './api';
 
 type Positions = Record<string, { x: number; y: number }>;
 type Colors = Record<string, string>;
 type Snapshot = { dbml: string; positions: Positions; colors: Colors };
 
-const SAMPLE = `Table loja.cliente {
+const SAMPLE = `TableGroup vendas {
+  loja.cliente
+  loja.pedido
+}
+
+LayerGroup bronze [color: #b08d57] {
+  loja.cliente
+}
+
+Table loja.cliente {
   id bigint [pk]
   nome string
   email string
+  Note: 'Dimensão de clientes'
 }
 
 Table loja.pedido {
@@ -33,18 +45,21 @@ Table loja.pedido {
 }
 
 Ref: loja.pedido.cliente_id > loja.cliente.id
+
+Lineage {
+  loja.pedido < loja.cliente
+}
 `;
 
 export default function App() {
   const [dbml, setDbml] = useState('');
   const [positions, setPositions] = useState<Positions>({});
   const [colors, setColors] = useState<Colors>({});
-  const [layerMap, setLayerMap] = useState<Record<string, string>>({});
-  const [customLayers, setCustomLayers] = useState<Layer[]>([]);
-  const [lineage, setLineage] = useState<LineageLink[]>([]);
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [status, setStatus] = useState('Carregando…');
-  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
+  const [autoSave, setAutoSave] = useState(false);
+  const [focusTableId, setFocusTableId] = useState<string | null>(null);
   const loadedRef = useRef(false);
   const selectColumn = useInteraction((s) => s.selectColumn);
 
@@ -65,17 +80,16 @@ export default function App() {
         setDbml(dbml0);
         setPositions(pos0);
         setColors(col0);
-        setLayerMap(p.canvas?.layers ?? {});
-        setCustomLayers(p.canvas?.customLayers ?? []);
-        setLineage(p.canvas?.lineage ?? []);
         setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
         baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
         setStatus('Pronto');
+        setSaveState('saved');
       })
       .catch(() => {
         setDbml(SAMPLE);
         baselineRef.current = { dbml: SAMPLE, positions: {}, colors: {} };
         setStatus('Backend offline — editando localmente');
+        setSaveState('saved');
       })
       .finally(() => {
         loadedRef.current = true;
@@ -129,6 +143,27 @@ export default function App() {
     });
   }, [dbml, positions, colors, applySnapshot]);
 
+  // Marca dirty quando qualquer dado muda após o load.
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    setSaveState((s) => (s === 'idle' || s === 'saving' ? s : 'dirty'));
+  }, [dbml, positions, colors, collapsedGroups]);
+
+  const handleSave = useCallback(() => {
+    setSaveState('saving');
+    api
+      .saveProject(dbml, { positions, colors, collapsedGroups })
+      .then(() => setSaveState('saved'))
+      .catch(() => setSaveState('error'));
+  }, [dbml, positions, colors, collapsedGroups]);
+
+  // Auto-save: quando ativo, salva após 1.5s de dirty.
+  useEffect(() => {
+    if (!autoSave || saveState !== 'dirty') return;
+    const id = setTimeout(handleSave, 1500);
+    return () => clearTimeout(id);
+  }, [autoSave, saveState, handleSave]);
+
   // Atalhos capturados ANTES do CodeMirror (cujo history nativo está desativado).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -142,35 +177,59 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         redo();
+      } else if (k === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSave();
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [undo, redo]);
+  }, [undo, redo, handleSave]);
 
   // Parse (driva o canvas). Recalcula a cada mudança de DBML.
   const parsed = useMemo(() => parseDbml(dbml), [dbml]);
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
-  const [canvasModel, setCanvasModel] = useState<ParseResult>({ tables: [], refs: [], records: [] });
+  const [canvasModel, setCanvasModel] = useState<ParseResult>({ tables: [], refs: [], records: [], layerGroups: [], lineage: [] });
   useEffect(() => {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
-  // Autosave debounced (DBML + posições + cores) com estado visível.
-  useEffect(() => {
-    if (!loadedRef.current) return;
-    setSaveState('saving');
-    const id = setTimeout(() => {
-      api
-        .saveProject(dbml, { positions, colors, layers: layerMap, customLayers, lineage, collapsedGroups })
-        .then(() => setSaveState('saved'))
-        .catch(() => setSaveState('error'));
-    }, 800);
-    return () => clearTimeout(id);
-  }, [dbml, positions, colors, layerMap, customLayers, lineage, collapsedGroups]);
+  const modelIssues = useMemo(() => validateModel(canvasModel), [canvasModel]);
 
-  const layersArr = useMemo(() => allLayers(customLayers), [customLayers]);
+  const focusTable = useCallback((tableId: string) => {
+    setFocusTableId(tableId);
+    useInteraction.getState().selectTable(tableId);
+  }, []);
+
+  const handleAutolayout = useCallback(() => {
+    const lineageMode = useInteraction.getState().lineageMode;
+    setPositions(autolayoutPositions(canvasModel, lineageMode));
+    setStatus('Canvas reorganizado');
+    setSaveState('dirty');
+  }, [canvasModel]);
+
+  // Lineage derivado do DBML (ParsedLineage[] → LineageLink[]).
+  const lineage = useMemo<LineageLink[]>(() => {
+    const out: LineageLink[] = [];
+    for (const entry of canvasModel.lineage) {
+      for (const s of entry.sources) out.push({ source: s, target: entry.target });
+    }
+    return out;
+  }, [canvasModel.lineage]);
+
+  // Camadas vêm do DBML (LayerGroup) — fonte de verdade exportável.
+  const layersArr = useMemo(() => layersFromGroups(canvasModel.layerGroups), [canvasModel.layerGroups]);
+  const layerMembership = useMemo(() => tableLayerMap(canvasModel.layerGroups), [canvasModel.layerGroups]);
+  const layerOf = useCallback(
+    (id: string) => {
+      if (layerMembership[id]) return layerMembership[id];
+      const schema = id.includes('.') ? id.split('.')[0] : undefined; // auto-match por schema
+      return schema && layersArr.some((l) => l.id === schema) ? schema : undefined;
+    },
+    [layerMembership, layersArr],
+  );
 
   // Ações do canvas (mutações de documento e cores) expostas via contexto.
   const actions = useMemo<CanvasActions>(
@@ -188,18 +247,12 @@ export default function App() {
           else delete next[id];
           return next;
         }),
-      layerOf: (id) => layerMap[id],
+      layerOf,
       layerColorOf: (layerId) => layerColorOf(layersArr, layerId),
       onSetLayer: (id, layerId) =>
-        setLayerMap((prev) => {
-          const next = { ...prev };
-          if (layerId) next[id] = layerId;
-          else delete next[id];
-          return next;
-        }),
+        setDbml((d) => setTableLayer(d, id, layerId, layerColorOf(layersArr, layerId ?? undefined))),
       layers: layersArr,
-      onAddLayer: (name, color) =>
-        setCustomLayers((prev) => [...prev, { id: name.toLowerCase().replace(/\s+/g, '_'), name, color }]),
+      onAddLayer: (name, color) => setDbml((d) => addLayerGroup(d, name, color)),
       onToggleGroup: (name) =>
         setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name])),
       tableMeta: (id) => {
@@ -219,20 +272,32 @@ export default function App() {
         return { sources, sample, pks, fks, refsIn, note: t?.note, columnNotes, has };
       },
     }),
-    [colors, selectColumn, layerMap, layersArr, canvasModel, lineage],
+    [colors, selectColumn, layerOf, layersArr, canvasModel, lineage],
   );
 
-  const handleCreateLineage = (source: string, target: string) =>
-    setLineage((prev) => addLineage(prev, source, target));
-  const handleRemoveLineage = (source: string, target: string) =>
-    setLineage((prev) => removeLineage(prev, source, target));
+  const handleCreateLineage = (source: string, target: string) => {
+    if (!source || !target || source === target) return;
+    setDbml((d) => addLineageEntry(d, source, target));
+  };
+  const handleRemoveLineage = (source: string, target: string) => {
+    setDbml((d) => removeLineageEntry(d, source, target));
+  };
   const handleToggleGroup = (name: string) =>
     setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]));
 
   const handleCreateRef = (fromTbl: string, fromCol: string, toTbl: string, toCol: string) => {
     if (!fromCol || !toCol) return;
-    setDbml((d) => appendRef(d, fromTbl, fromCol, toTbl, toCol));
-    setStatus(`Relação criada: ${fromTbl}.${fromCol} → ${toTbl}.${toCol}`);
+    const fromTable = canvasModel.tables.find((t) => t.id === fromTbl);
+    const toTable = canvasModel.tables.find((t) => t.id === toTbl);
+    const fromIsPk = !!fromTable?.columns.find((c) => c.name === fromCol)?.pk;
+    const toIsPk = !!toTable?.columns.find((c) => c.name === toCol)?.pk;
+    if (fromIsPk && !toIsPk) {
+      setDbml((d) => appendRef(d, toTbl, toCol, fromTbl, fromCol));
+      setStatus(`Relação criada: ${toTbl}.${toCol} → ${fromTbl}.${fromCol}`);
+    } else {
+      setDbml((d) => appendRef(d, fromTbl, fromCol, toTbl, toCol));
+      setStatus(`Relação criada: ${fromTbl}.${fromCol} → ${toTbl}.${toCol}`);
+    }
   };
 
   const handleRemoveRef = (fromTbl: string, fromCol: string, toTbl: string, toCol: string) => {
@@ -310,19 +375,43 @@ export default function App() {
         <button onClick={() => handleExport('erwin', api.exportErwin)}>Export erwin</button>
         <button onClick={() => handleExport('mermaid', api.exportMermaid)}>Export Mermaid</button>
         <button onClick={handlePng}>Export PNG</button>
+        <span className="sep" />
+        <button
+          className="btn-save"
+          onClick={handleSave}
+          disabled={saveState === 'saving' || saveState === 'saved' || saveState === 'idle'}
+          title="Salvar (Cmd/Ctrl+S)"
+        >
+          Salvar
+        </button>
+        <span className="toolbar__autosave">
+          <span className="toolbar__autosave-label">Auto-save</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoSave}
+            className={`toggle-switch ${autoSave ? 'is-on' : ''}`}
+            title={autoSave ? 'Auto-save ligado' : 'Auto-save desligado'}
+            onClick={() => setAutoSave((a) => !a)}
+          >
+            <span className="toggle-switch__knob" />
+          </button>
+        </span>
         <span className="status">{status}</span>
         <span className={`savestate savestate--${saveState}`}>
           {saveState === 'saving'
             ? 'Salvando…'
             : saveState === 'error'
               ? '⚠ Falha ao salvar'
-              : 'Salvo ✓'}
+              : saveState === 'dirty'
+                ? '● Não salvo'
+                : 'Salvo ✓'}
         </span>
       </header>
 
       <main className="panes">
         <section className="pane pane--editor">
-          <Editor value={dbml} onChange={setDbml} error={parsed.error} />
+          <Editor value={dbml} onChange={setDbml} error={parsed.error} onFocusTable={focusTable} />
         </section>
         <section className="pane pane--canvas">
           <CanvasActionsCtx.Provider value={actions}>
@@ -335,14 +424,23 @@ export default function App() {
               lineage={lineage}
               onCreateLineage={handleCreateLineage}
               onRemoveLineage={handleRemoveLineage}
-              layerOf={(id) => layerMap[id]}
+              layerOf={layerOf}
               collapsedGroups={collapsedGroups}
               onToggleGroup={handleToggleGroup}
+              focusTableId={focusTableId}
+              onFocusTableDone={() => setFocusTableId(null)}
             />
-            <LayersPanel layers={layersArr} onAddLayer={actions.onAddLayer} />
-            <ColumnPanel dbml={dbml} onApply={setDbml} />
+            <LayersPanel
+              layers={layersArr}
+              tables={canvasModel.tables.map((t) => ({ id: t.id }))}
+              onAddLayer={actions.onAddLayer}
+              onFocusTable={focusTable}
+              onAutolayout={handleAutolayout}
+            />
+            <ProblemsPanel issues={modelIssues} onFocusTable={focusTable} />
+            <ColumnPanel dbml={dbml} tables={canvasModel.tables} onApply={setDbml} />
           </CanvasActionsCtx.Provider>
-          <RecordsPanel records={parsed.records} />
+          <RecordsPanel records={canvasModel.records} tables={canvasModel.tables} />
         </section>
       </main>
     </div>

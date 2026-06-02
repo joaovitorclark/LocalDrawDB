@@ -1,20 +1,42 @@
+import { useMemo } from 'react';
 import { useInteraction } from '../store/interaction';
 import { getColumnSettings, setColumnSetting, type ColSettings } from '../dsl/edit';
+import type { TableView } from '../dsl/parse';
 
-// Painel de propriedades da coluna selecionada. Edições reescrevem o DBML.
 type Props = {
   dbml: string;
+  tables: TableView[];
   onApply: (next: string) => void;
 };
 
-export function ColumnPanel({ dbml, onApply }: Props) {
+export function ColumnPanel({ dbml, tables, onApply }: Props) {
   const sel = useInteraction((s) => s.selectedColumn);
   const selectColumn = useInteraction((s) => s.selectColumn);
   if (!sel) return null;
 
+  const table = tables.find((t) => t.id === sel.table);
   const s = getColumnSettings(dbml, sel.table, sel.column);
   const apply = (patch: ColSettings) =>
     onApply(setColumnSetting(dbml, sel.table, sel.column, { ...s, ...patch }));
+
+  const refOptions = useMemo(() => {
+    const out: { value: string; label: string }[] = [];
+    for (const t of tables) {
+      for (const c of t.columns) {
+        if (t.id === sel.table && c.name === sel.column) continue;
+        if (c.pk) out.push({ value: `${t.id}.${c.name}`, label: `${t.id}.${c.name} (PK)` });
+      }
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label));
+  }, [tables, sel.table, sel.column]);
+
+  const compositeHint = useMemo(() => {
+    const groups = table?.compositePks?.filter((g) => g.includes(sel.column) && g.length > 1);
+    if (!groups?.length) return null;
+    return groups.map((g) => `(${g.join(', ')})`).join(', ');
+  }, [table, sel.column]);
+
+  const refValue = s.refTarget ?? '';
 
   return (
     <div className="column-panel">
@@ -25,9 +47,26 @@ export function ColumnPanel({ dbml, onApply }: Props) {
           ✕
         </button>
       </div>
+      {compositeHint && (
+        <p className="column-panel__hint">PK composta: {compositeHint}</p>
+      )}
       <label className="column-panel__row">
         <input type="checkbox" checked={!!s.pk} onChange={(e) => apply({ pk: e.target.checked })} />
         Primary key
+      </label>
+      <label className="column-panel__field">
+        Referência (FK)
+        <select
+          value={refValue}
+          onChange={(e) => apply({ refTarget: e.target.value || null })}
+        >
+          <option value="">— nenhuma —</option>
+          {refOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </label>
       <label className="column-panel__row">
         <input

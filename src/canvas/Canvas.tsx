@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
-  Background, Controls, MiniMap, useEdgesState, useNodesState,
+  Background, Controls, MiniMap, ConnectionMode, useEdgesState, useNodesState, useReactFlow,
   type Connection, type Edge, type Node,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -13,6 +13,7 @@ import { useCanvasNodes, useHoverHighlight, type NodeOpts, type Positions } from
 import { useInteraction } from '../store/interaction';
 import type { ParseResult } from '../dsl/parse';
 import type { LineageLink } from '../api';
+import { DEFAULT_LINEAGE_SOURCE, DEFAULT_LINEAGE_TARGET, isLineageHandle } from './lineageHandles';
 
 const stripHandle = (h: string | null | undefined) => (h ? h.replace(/^[st]:/, '') : '');
 const nodeTypes = { table: TableNode, group: GroupNode };
@@ -32,20 +33,44 @@ type Props = {
   layerOf: (tableId: string) => string | undefined;
   collapsedGroups: string[];
   onToggleGroup: (name: string) => void;
+  focusTableId?: string | null;
+  onFocusTableDone?: () => void;
 };
+
+function FocusTableHelper({
+  tableId,
+  onDone,
+}: {
+  tableId: string | null | undefined;
+  onDone?: () => void;
+}) {
+  const { fitView, getNode } = useReactFlow();
+  useEffect(() => {
+    if (!tableId) return;
+    const node = getNode(tableId);
+    if (node) fitView({ nodes: [node], padding: 0.45, duration: 280, maxZoom: 1.25 });
+    onDone?.();
+  }, [tableId, fitView, getNode, onDone]);
+  return null;
+}
 
 export function Canvas(props: Props) {
   const { parsed, positions, onPositionsChange, onCreateRef, onRemoveRef, lineage,
-    onCreateLineage, onRemoveLineage, layerOf, collapsedGroups, onToggleGroup } = props;
+    onCreateLineage, onRemoveLineage, layerOf, collapsedGroups, onToggleGroup,
+    focusTableId, onFocusTableDone } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const hovered = useInteraction((s) => s.hoveredTableId);
   const setHovered = useInteraction((s) => s.setHovered);
   const selectColumn = useInteraction((s) => s.selectColumn);
+  const selectTable = useInteraction((s) => s.selectTable);
+  const selectGroup = useInteraction((s) => s.selectGroup);
   const hiddenLayers = useInteraction((s) => s.hiddenLayers);
   const layerDimMode = useInteraction((s) => s.layerDimMode);
-  const lineageVisible = useInteraction((s) => s.lineageVisible);
   const lineageMode = useInteraction((s) => s.lineageMode);
+  const lineageVisible = useInteraction((s) => s.lineageVisible);
+  const showLineage = lineageVisible || lineageMode;
+  const [connecting, setConnecting] = useState(false);
 
   const related = useMemo(() => {
     if (!hovered) return null;
@@ -77,25 +102,41 @@ export function Canvas(props: Props) {
   useCanvasNodes(parsed, positions, setNodes, relatedRef, opts);
   useHoverHighlight(setNodes, related);
 
-  // Arestas: PK/FK (relation) + linhagem (lineage).
+  // Arestas: PK/FK (relation) — ocultas no modo linhagem; linhagem só com modo ativo.
   useEffect(() => {
-    const relEdges: Edge[] = parsed.refs.map((r) => {
-      const endpoints: RefEndpoints = { fromTbl: r.source, fromCol: r.fromCol, toTbl: r.target, toCol: r.toCol };
-      return {
-        id: r.id, source: r.source, target: r.target,
-        sourceHandle: `s:${r.fromCol}`, targetHandle: `t:${r.toCol}`,
-        type: 'relation',
-        data: { fromRel: r.fromRel, toRel: r.toRel, endpoints, onRemove: () => onRemoveRef(r.source, r.fromCol, r.target, r.toCol) },
-      };
+    setEdges((prev) => {
+      const prevLin = new Map(
+        prev.filter((e) => e.type === 'lineage').map((e) => [e.id, e] as const),
+      );
+      const relEdges: Edge[] = lineageMode
+        ? []
+        : parsed.refs.map((r) => {
+            const endpoints: RefEndpoints = { fromTbl: r.source, fromCol: r.fromCol, toTbl: r.target, toCol: r.toCol };
+            return {
+              id: r.id, source: r.source, target: r.target,
+              sourceHandle: `s:${r.fromCol}`, targetHandle: `t:${r.toCol}`,
+              type: 'relation',
+              data: { fromRel: r.fromRel, toRel: r.toRel, endpoints, onRemove: () => onRemoveRef(r.source, r.fromCol, r.target, r.toCol) },
+            };
+          });
+      const linEdges: Edge[] = showLineage
+        ? lineage.map((l) => {
+            const id = `lin:${l.source}->${l.target}`;
+            const prior = prevLin.get(id);
+            const edge: Edge = {
+              id, source: l.source, target: l.target, type: 'lineage',
+              data: { onRemove: () => onRemoveLineage(l.source, l.target) },
+            };
+            if (lineageMode) {
+              edge.sourceHandle = prior?.sourceHandle ?? DEFAULT_LINEAGE_SOURCE;
+              edge.targetHandle = prior?.targetHandle ?? DEFAULT_LINEAGE_TARGET;
+            }
+            return edge;
+          })
+        : [];
+      return [...relEdges, ...linEdges];
     });
-    const linEdges: Edge[] = lineageVisible
-      ? lineage.map((l) => ({
-          id: `lin:${l.source}->${l.target}`, source: l.source, target: l.target, type: 'lineage',
-          data: { onRemove: () => onRemoveLineage(l.source, l.target) },
-        }))
-      : [];
-    setEdges([...relEdges, ...linEdges]);
-  }, [parsed.refs, lineage, lineageVisible, setEdges, onRemoveRef, onRemoveLineage]);
+  }, [parsed.refs, lineage, lineageMode, showLineage, setEdges, onRemoveRef, onRemoveLineage]);
 
   useEffect(() => {
     setEdges((prev) => prev.map((e) => {
@@ -105,10 +146,24 @@ export function Canvas(props: Props) {
     }));
   }, [hovered, setEdges]);
 
+  const isValidConnection = useCallback(
+    (c: Connection) => {
+      if (!c.source || !c.target || c.source === c.target) return false;
+      if (lineageMode) {
+        return isLineageHandle(c.sourceHandle) && isLineageHandle(c.targetHandle);
+      }
+      return !!c.sourceHandle?.startsWith('s:') && !!c.targetHandle?.startsWith('t:');
+    },
+    [lineageMode],
+  );
+
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target) return;
-    if (lineageMode) onCreateLineage(c.source, c.target);
-    else onCreateRef(c.source, stripHandle(c.sourceHandle), c.target, stripHandle(c.targetHandle));
+    if (lineageMode) {
+      onCreateLineage(c.source, c.target);
+      return;
+    }
+    onCreateRef(c.source, stripHandle(c.sourceHandle), c.target, stripHandle(c.targetHandle));
   }, [lineageMode, onCreateLineage, onCreateRef]);
 
   // Mover grupo inteiro: aplica o delta às tabelas-membro.
@@ -151,14 +206,14 @@ export function Canvas(props: Props) {
   }, [onRemoveLineage, onRemoveRef]);
 
   const onEdgeUpdate = useCallback((oldEdge: Edge, c: Connection) => {
-    if (oldEdge.type !== 'relation') return; // só PK/FK reconecta
+    if (lineageMode || oldEdge.type !== 'relation') return;
     const ep = oldEdge.data?.endpoints as RefEndpoints | undefined;
     if (!ep || !c.source || !c.target) return;
     const fromCol = stripHandle(c.sourceHandle); const toCol = stripHandle(c.targetHandle);
     if (!fromCol || !toCol) return;
     onRemoveRef(ep.fromTbl, ep.fromCol, ep.toTbl, ep.toCol);
     onCreateRef(c.source, fromCol, c.target, toCol);
-  }, [onRemoveRef, onCreateRef]);
+  }, [lineageMode, onRemoveRef, onCreateRef]);
 
   return (
     <>
@@ -174,15 +229,33 @@ export function Canvas(props: Props) {
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
+        onConnectStart={lineageMode ? () => setConnecting(true) : undefined}
+        onConnectEnd={() => setConnecting(false)}
+        isValidConnection={isValidConnection}
+        connectionMode={lineageMode ? ConnectionMode.Loose : ConnectionMode.Strict}
+        connectionRadius={lineageMode ? 56 : 24}
+        nodesConnectable
+        connectOnClick={false}
+        edgesUpdatable={!lineageMode}
+        className={
+          lineageMode
+            ? `canvas--lineage-mode${connecting ? ' canvas--lineage-connecting' : ''}`
+            : undefined
+        }
         onEdgesDelete={onEdgesDelete}
         onEdgeUpdate={onEdgeUpdate}
         deleteKeyCode={['Delete', 'Backspace']}
         onNodeMouseEnter={(_, n) => setHovered(n.id)}
         onNodeMouseLeave={() => setHovered(null)}
-        onPaneClick={() => selectColumn(null)}
+        onNodeClick={(_, n) => {
+          if (n.type === 'table') selectTable(n.id);
+          else if (n.type === 'group') selectGroup(n.id.replace(/^group:/, ''));
+        }}
+        onPaneClick={() => { selectColumn(null); selectTable(null); selectGroup(null); }}
         fitView
         minZoom={0.1}
       >
+        <FocusTableHelper tableId={focusTableId} onDone={onFocusTableDone} />
         <Background />
         <Controls />
         <MiniMap pannable zoomable />

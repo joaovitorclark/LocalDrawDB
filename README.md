@@ -29,74 +29,65 @@ npm start          # http://localhost:5174
 
 ## Como usar
 
-- **Editor (esquerda)**: escreva tabelas em DBML (realce de sintaxe). O canvas
-  atualiza ao vivo; erros de sintaxe aparecem inline sem apagar o diagrama.
-- **Undo/Redo** (↶ ↷ ou Cmd/Ctrl+Z e Cmd/Ctrl+Shift+Z): histórico global que
-  desfaz tanto edições de texto quanto ações do canvas (cor, posição, relações).
-- **Organize**: reordena o DBML em `tabelas → refs → records` (preserva comentários).
-- **+ Tabela / + Metadados**: insere uma tabela nova ou o bloco de colunas de
-  metadados padrão do lakehouse (transact_id, ingestion_timestamp, ...).
-- **Importar (input/)**: lê todos os `.sql` de `data/input/` e mescla no modelo.
-- **Export DDL / dbt / erwin / PNG**: gera artefatos em `data/output/`.
+- **Editor (esquerda)**: DBML com realce de sintaxe, **Outline** (filtro + clique para ir à linha/tabela), fold de comentários.
+- **Undo/Redo** (↶ ↷ ou Cmd/Ctrl+Z e Cmd/Ctrl+Shift+Z): histórico global (texto + canvas).
+- **Organize**: reordena o DBML em `tabelas → refs → records → lineage` (preserva comentários).
+- **+ Tabela / + Metadados**: nova tabela ou snippet de colunas lakehouse padrão.
+- **Importar (input/)**: mescla `.sql` de `data/input/` (Spark, Oracle, `@layer`/`@group`/`@note`/`@fk`, `COMMENT ON`, PK composta).
+- **Export DDL / dbt / erwin / Mermaid / PNG**: artefatos em `data/output/`.
 
 ### Interações no canvas
 
-- **Hover** numa tabela destaca suas relações (verde) e esmaece o resto.
-- **Crow's foot**: a cardinalidade (`*`/`1`) é desenhada nas pontas das relações.
-- **Arrastar de uma coluna para outra** cria uma relação (escreve `Ref:` no DBML);
-  a aresta ancora na **coluna correta** (origem e destino).
-- **Selecionar uma relação** (clique) e **Delete/Backspace** — ou o botão **✕** sobre
-  ela — remove o `Ref`. **Arrastar a ponta** de uma relação a reconecta a outra coluna.
-- Arrastar tabelas é estável (a posição é preservada e salva em `data/canvas.json`).
-- **Clicar numa coluna** abre o painel de propriedades (pk / not null / note / default).
-- **Duplo-clique** no nome da coluna renomeia; **+ coluna** adiciona uma coluna.
-- **Duplo-clique** no nome da tabela renomeia (atualiza refs e grupos).
-- **Cor por tabela** (botão ● no header) e **grupos visuais** (TableGroup) — cor e
-  layout ficam em `data/canvas.json`, nunca no DBML.
+- **Hover** numa tabela destaca relações FK (verde) e esmaece o resto.
+- **Crow's foot** nas pontas das relações.
+- **Arrastar coluna → coluna** cria `Ref:` no DBML; reconectar ou Delete remove.
+- **Painel Camadas** (canto superior direito): visibilidade por camada, esmaecer, **Mostrar linhagem**, busca de tabelas, **Organizar canvas**, modo linhagem.
+- **Problemas** (canto inferior esquerdo): avisos/erros de modelo (PK ausente, ref inválida, linhagem quebrada).
+- **Clicar coluna** → painel PK/FK/not null; **ⓘ** no header → metadados (sample, linhagem, FKs).
+- **Cor por tabela** (●) e **TableGroup** / **LayerGroup** no DBML.
+
+### Linhagem (tabela → tabela)
+
+- Bloco `Lineage { destino < origem }` no DBML (distinto de FK).
+- **Mostrar linhagem**: exibe arestas tracejadas sem entrar no modo edição.
+- **Modo linhagem**: tabelas compactas, portas nas bordas (estilo draw.io); FKs ocultas; arrastar entre portas cria linhagem.
 
 ### Records (dados de exemplo)
 
-Blocos `Records` do DBML são **preservados** e exibidos como **amostra** num painel
-sob o canvas (o parser não os suporta, então são tratados à parte).
+Blocos `Records` preservados; painel **Dados (amostra)** filtra por tabela/grupo selecionado. `@note` no import SQL vai para Records, não para o `Table`.
 
 > Identidade visual **Seguros Unimed** (azul-marinho + verde). Specs em [`spec/`](./spec).
 
 ## Salvamento
 
-O projeto é salvo automaticamente (debounced) em `data/` a cada edição. A toolbar
-mostra o estado: **Salvando… / Salvo ✓ / ⚠ Falha ao salvar**. Se aparecer "Falha ao
-salvar", o backend não está respondendo — confira se o servidor está no ar
-(`npm run dev` sobe Vite **e** Fastify juntos).
+- **Salvar** (botão ou Cmd/Ctrl+S): grava `data/project.dbml` + `data/canvas.json`.
+- **Auto-save** (toggle verde/vermelho na toolbar): salva automaticamente após 1,5s quando há alterações pendentes (desligado por padrão).
+- Estados: **Salvando… / Salvo ✓ / ● Não salvo / ⚠ Falha ao salvar**.
 
 ## Pasta `data/` (nunca versionada)
 
-Tudo do usuário fica em `data/` (ignorada pelo git):
-
 ```
 data/
-├─ input/         # coloque seus .sql aqui para importar
-├─ output/        # DDL Spark, projeto dbt, PNG e script erwin gerados
-├─ project.dbml   # persistência do modelo (fonte de verdade)
-└─ canvas.json    # posições das tabelas no canvas
+├─ input/         # .sql para importar (veja data/input/README.md)
+├─ output/        # DDL, dbt, erwin, Mermaid, PNG
+├─ project.dbml   # fonte de verdade do modelo
+└─ canvas.json    # posições, cores, grupos colapsados
 ```
 
 ## Exports
 
 | Alvo | Saída | Observação |
-|------|-------|-----------|
+|------|-------|------------|
 | Spark/Databricks | `data/output/spark/<schema>.sql` | `CREATE TABLE ... USING DELTA` |
 | dbt | `data/output/dbt/` | models `.sql` + `schema.yml` + `dbt_project.yml` |
-| erwin | `data/output/erwin/modelo.sql` | script DDL ANSI para "Reverse Engineer from Script" |
-| Mermaid | `data/output/mermaid/modelo.mmd` | diagrama `erDiagram` |
-| PNG | download + `data/output/diagram.png` | imagem do diagrama |
-
-O `.erwin` nativo é binário proprietário e **não** é gerado — o caminho suportado
-é o script DDL acima.
+| erwin | `data/output/erwin/modelo.sql` | DDL ANSI para Reverse Engineer |
+| Mermaid | `data/output/mermaid/modelo.mmd` | `erDiagram` |
+| PNG | download + `data/output/diagram.png` | captura do canvas |
 
 ## Testes & verificação
 
 ```bash
-npm test           # Vitest: round-trips import/export
-npm run typecheck  # tsc --noEmit
-node scripts/verify-render.mjs   # render headless (precisa do Chrome + servidor no :5192)
+npm test           # Vitest
+npm run typecheck
+node scripts/verify-render.mjs   # headless (Chrome + servidor :5192)
 ```

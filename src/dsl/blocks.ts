@@ -6,12 +6,14 @@ export type BlockType =
   | 'enum'
   | 'table'
   | 'tableGroup'
+  | 'layerGroup'
   | 'ref'
+  | 'lineage'
   | 'records'
   | 'comment'
   | 'blank';
 
-export type Block = { type: BlockType; name?: string; text: string };
+export type Block = { type: BlockType; name?: string; text: string; lineStart?: number };
 
 /** Delta de chaves numa linha, ignorando strings ('...'/"...") e comentário //. */
 function braceDelta(line: string): number {
@@ -37,9 +39,11 @@ function braceDelta(line: string): number {
 function detectType(trimmed: string): BlockType {
   if (/^Project\b/i.test(trimmed)) return 'project';
   if (/^Enum\b/i.test(trimmed)) return 'enum';
+  if (/^LayerGroup\b/i.test(trimmed)) return 'layerGroup';
   if (/^TableGroup\b/i.test(trimmed)) return 'tableGroup';
   if (/^Table\b/i.test(trimmed)) return 'table';
   if (/^Ref\b/i.test(trimmed)) return 'ref';
+  if (/^Lineage\b/i.test(trimmed)) return 'lineage';
   if (/^records\b/i.test(trimmed)) return 'records';
   return 'comment';
 }
@@ -60,6 +64,7 @@ export function splitDbmlBlocks(src: string): Block[] {
   const lines = src.split('\n');
   const blocks: Block[] = [];
   let leading: string[] = [];
+  let leadingStart = 0;
   let i = 0;
 
   while (i < lines.length) {
@@ -67,21 +72,23 @@ export function splitDbmlBlocks(src: string): Block[] {
     const trimmed = line.trim();
 
     if (trimmed === '') {
+      if (!leading.length) leadingStart = i;
       leading.push(line);
       i++;
       continue;
     }
     if (trimmed.startsWith('//')) {
+      if (!leading.length) leadingStart = i;
       leading.push(line);
       i++;
       continue;
     }
 
     const type = detectType(trimmed);
+    const blockStart = i;
     const blockLines = [line];
     let depth = braceDelta(line);
     i++;
-    // Bloco com chaves: consome até balancear.
     while (i < lines.length && depth > 0) {
       blockLines.push(lines[i]);
       depth += braceDelta(lines[i]);
@@ -89,12 +96,13 @@ export function splitDbmlBlocks(src: string): Block[] {
     }
 
     const text = [...leading, ...blockLines].join('\n');
+    const lineStart = leading.length ? leadingStart : blockStart;
     leading = [];
-    blocks.push({ type, name: detectName(type, trimmed), text });
+    blocks.push({ type, name: detectName(type, trimmed), text, lineStart });
   }
 
   if (leading.some((l) => l.trim() !== '')) {
-    blocks.push({ type: 'comment', text: leading.join('\n') });
+    blocks.push({ type: 'comment', text: leading.join('\n'), lineStart: leadingStart });
   }
   return blocks;
 }

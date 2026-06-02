@@ -1,9 +1,10 @@
+import type { CSSProperties } from 'react';
 import type { TableMeta } from './actions';
 
 // Popover de metadados: sources, exemplo de dados, PKs/FKs e comentários.
-export function TableInfoPopover({ meta }: { meta: TableMeta }) {
+export function TableInfoPopover({ meta, style }: { meta: TableMeta; style?: CSSProperties }) {
   return (
-    <div className="info-popover" onClick={(e) => e.stopPropagation()}>
+    <div className="info-popover" style={style} onClick={(e) => e.stopPropagation()}>
       {meta.sources.length > 0 && (
         <section>
           <h5>Sources (linhagem)</h5>

@@ -36,3 +36,23 @@ Ordem de execução derivada de [`spec.md`](./spec.md) + [`plan.md`](./plan.md).
 - [x] `src/exportPng.ts` — html-to-image → `/api/export/png`
 - [x] `server/ddl/erwin.ts` — script DDL ANSI → `data/output/erwin/`
 - [x] Verificação e2e (ver `spec.md` §4)
+
+## Fase v4 — Canvas, camadas, linhagem, editor
+- [x] TableGroup colapsável + arrastar grupo (`spec/v4/01-*`)
+- [x] LayerGroup no DBML + painel de camadas (`spec/v4/02-*`)
+- [x] Linhagem `Lineage {}` + modo edição + mostrar linhagem (`spec/v4/03-*`)
+- [x] Scroll editor + Outline (`spec/v4/04-*`)
+- [x] Popover ⓘ metadados (`spec/v4/05-*`)
+
+## Fase v5 — Import, save, records, FK UI
+- [x] Save manual + toggle Auto-save + Cmd/Ctrl+S
+- [x] Records filtrados por tabela/grupo; `@note` só em Records no import
+- [x] SQL import: Oracle/Spark, `@fk`, FK no DDL, PK composta, `COMMENT ON`
+- [x] ColumnPanel: FK via `ref:`; export `indexes { (a,b) [pk] }`
+- [x] demo_lakehouse.sql + README em `data/input/`
+
+## Fase v6 — Usabilidade e validação (roadmap)
+- [x] Busca de tabelas no painel + Outline; `fitView` no canvas
+- [x] Painel Problemas (`validateModel`)
+- [x] Autolayout dagre por TableGroup (`Organizar canvas`)
+- [x] README e SAMPLE atualizados
