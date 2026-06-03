@@ -92,18 +92,48 @@ function dagreSpacing(n: number, inGroup: boolean): { nodesep: number; ranksep: 
   };
 }
 
+function countInternalEdges(ids: Set<string>, parsed: ParseResult): number {
+  let n = 0;
+  for (const r of parsed.refs) {
+    if (ids.has(r.source) && ids.has(r.target)) n++;
+  }
+  for (const entry of parsed.lineage) {
+    if (!ids.has(entry.target)) continue;
+    for (const src of entry.sources) {
+      if (ids.has(src)) n++;
+    }
+  }
+  return n;
+}
+
+/** Grade 2D garantida (sem dagre) — usada quando o grafo é esparso ou após colisões. */
+function layoutClusterGrid(
+  tables: TableView[],
+  metrics: NodeMetricsOpts,
+  offsetY = 0,
+): Positions {
+  const sorted = [...tables].sort((a, b) => a.id.localeCompare(b.id));
+  return packSingletonGrid(sorted, metrics, offsetY).positions;
+}
+
 function layoutSubset(
   tables: TableView[],
   parsed: ParseResult,
   metrics: NodeMetricsOpts,
   inGroup: boolean,
 ): Positions {
+  const ids = new Set(tables.map((t) => t.id));
+  const edges = countInternalEdges(ids, parsed);
+  const sparse = tables.length >= 4 && edges < tables.length * 0.45;
+  if (edges === 0 || sparse || (inGroup && tables.length >= 6 && edges < tables.length)) {
+    return layoutClusterGrid(tables, metrics);
+  }
+
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   const { nodesep, ranksep } = dagreSpacing(tables.length, inGroup);
   g.setGraph({ rankdir: 'LR', nodesep, ranksep, marginx: 24, marginy: 24 });
 
-  const ids = new Set(tables.map((t) => t.id));
   for (const t of tables) {
     g.setNode(t.id, { width: nodeWidth(t, metrics), height: nodeHeight(t, metrics) });
   }
@@ -127,7 +157,7 @@ function layoutSubset(
   return out;
 }
 
-/** Empacota tabelas isoladas (sem aresta entre si) em grade. */
+/** Empacota tabelas em grade com colunas/linhas de largura variável. */
 function packSingletonGrid(
   tables: TableView[],
   metrics: NodeMetricsOpts,
@@ -137,17 +167,36 @@ function packSingletonGrid(
   if (!tables.length) return { positions, maxY: offsetY };
 
   const cols = Math.max(1, Math.ceil(Math.sqrt(tables.length)));
-  const cellW =
-    Math.max(...tables.map((t) => nodeWidth(t, metrics)), 0) + MARGIN;
-  const cellH =
-    Math.max(...tables.map((t) => nodeHeight(t, metrics)), 0) + MARGIN;
+  const rows = Math.ceil(tables.length / cols);
+  const colWidths = new Array<number>(cols).fill(0);
+  const rowHeights = new Array<number>(rows).fill(0);
+
+  tables.forEach((t, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    colWidths[col] = Math.max(colWidths[col], nodeWidth(t, metrics) + MARGIN);
+    rowHeights[row] = Math.max(rowHeights[row], nodeHeight(t, metrics) + MARGIN);
+  });
+
+  const colX: number[] = [];
+  let xAcc = 0;
+  for (let c = 0; c < cols; c++) {
+    colX[c] = xAcc;
+    xAcc += colWidths[c];
+  }
+  const rowY: number[] = [];
+  let yAcc = offsetY;
+  for (let r = 0; r < rows; r++) {
+    rowY[r] = yAcc;
+    yAcc += rowHeights[r];
+  }
 
   let maxY = offsetY;
   tables.forEach((t, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const x = col * cellW;
-    const y = offsetY + row * cellH;
+    const x = colX[col];
+    const y = rowY[row];
     positions[t.id] = { x, y };
     maxY = Math.max(maxY, y + nodeHeight(t, metrics));
   });
@@ -194,7 +243,11 @@ function layoutCluster(
     offsetY = packed.maxY + COMPONENT_GAP;
   }
 
-  return positions;
+  let out = resolveOverlaps(positions, tables, parsed, metrics);
+  if (countOverlaps(toRects(out, tables, metrics), MARGIN) > 0) {
+    out = layoutClusterGrid(tables, metrics);
+  }
+  return out;
 }
 
 function rectsOverlap(a: Rect, b: Rect, margin: number): boolean {
@@ -256,19 +309,23 @@ export function resolveOverlaps(
         const self = moveA ? a : b;
         const other = moveA ? b : a;
 
-        const pushX = other.x + other.w + MARGIN - self.x;
-        const pushY = other.y + other.h + MARGIN - self.y;
+        const gapX = other.x + other.w + MARGIN - self.x;
+        const gapY = other.y + other.h + MARGIN - self.y;
+        const overlapX = self.x + self.w + MARGIN - other.x;
+        const overlapY = self.y + self.h + MARGIN - other.y;
         const cur = pos[moveId];
-        if (pushX > 0) {
-          pos[moveId] = { x: cur.x + pushX, y: cur.y };
-          moved = true;
+        let nx = cur.x;
+        let ny = cur.y;
+        if (gapX > 0 && (gapX <= gapY || gapY <= 0)) nx += gapX;
+        else if (overlapX > 0 && gapX <= 0) nx += overlapX;
+        if (gapY > 0 && (gapY < gapX || gapX <= 0)) ny += gapY;
+        else if (overlapY > 0 && gapY <= 0) ny += overlapY;
+        if (nx === cur.x && ny === cur.y) {
+          nx += MARGIN + 1;
+          ny += MARGIN + 1;
         }
-        if (pushY > 0) {
-          pos[moveId] = { x: pos[moveId].x, y: pos[moveId].y + pushY };
-          moved = true;
-        }
-        if (pushX <= 0 && pushY <= 0) {
-          pos[moveId] = { x: cur.x + MARGIN + 1, y: cur.y };
+        if (nx !== cur.x || ny !== cur.y) {
+          pos[moveId] = { x: nx, y: ny };
           moved = true;
         }
       }

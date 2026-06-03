@@ -177,6 +177,19 @@ ${Array.from(
     assertNoOverlaps(parsed, true);
   });
 
+  it('nao sobrepoe muitas bronze com nomes longos (modo linhagem)', () => {
+    const tables = Array.from(
+      { length: 11 },
+      (_, i) =>
+        `Table bronze.ts_000009_autorizacao_${i} {\n  id bigint [pk]\n  col_a string\n  col_b string\n}`,
+    ).join('\n');
+    const parsed = parseDbml(tables);
+    assertNoOverlaps(parsed, true);
+    const pos = autolayoutPositions(parsed, true);
+    const xs = parsed.tables.map((t) => pos[t.id].x);
+    expect(new Set(xs).size).toBeGreaterThan(1);
+  });
+
   it('layout de ~50 tabelas em menos de 500ms', () => {
     const tables = Array.from(
       { length: 50 },

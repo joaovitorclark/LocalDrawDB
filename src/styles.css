@@ -260,7 +260,12 @@ body {
 }
 .table-node-shell--lineage .table-node {
   min-width: 168px;
+  max-width: 360px;
   box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.45);
+}
+.table-node-shell--lineage .table-node__title {
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* Nó de tabela */
