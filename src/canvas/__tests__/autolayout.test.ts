@@ -25,6 +25,7 @@ function rectsOverlap(
 
 function assertNoOverlaps(parsed: ReturnType<typeof parseDbml>, compact: boolean) {
   const pos = autolayoutPositions(parsed, compact);
+  const metrics = { compact, layout: true as const };
   const tables = parsed.tables;
   for (let i = 0; i < tables.length; i++) {
     for (let j = i + 1; j < tables.length; j++) {
@@ -36,12 +37,12 @@ function assertNoOverlaps(parsed: ReturnType<typeof parseDbml>, compact: boolean
       const overlap = rectsOverlap(
         pa.x,
         pa.y,
-        nodeWidth(a, { compact }),
-        nodeHeight(a, { compact }),
+        nodeWidth(a, metrics),
+        nodeHeight(a, metrics),
         pb.x,
         pb.y,
-        nodeWidth(b, { compact }),
-        nodeHeight(b, { compact }),
+        nodeWidth(b, metrics),
+        nodeHeight(b, metrics),
       );
       expect(overlap, `overlap ${a.id} vs ${b.id}`).toBe(false);
     }
@@ -161,6 +162,19 @@ Ref: x.b.id > x.a.id
     const p1 = autolayoutPositions(parsed);
     const p2 = autolayoutPositions(parsed);
     expect(p1).toEqual(p2);
+  });
+
+  it('nao sobrepoe muitas tabelas no mesmo TableGroup (dims isoladas)', () => {
+    const parsed = parseDbml(`
+TableGroup dimensao {
+  ${Array.from({ length: 12 }, (_, i) => `dim.d${i}`).join('\n  ')}
+}
+${Array.from(
+  { length: 12 },
+  (_, i) => `Table dim.d${i} {\n  id bigint [pk]\n  nome string\n}`,
+).join('\n')}
+`);
+    assertNoOverlaps(parsed, true);
   });
 
   it('layout de ~50 tabelas em menos de 500ms', () => {

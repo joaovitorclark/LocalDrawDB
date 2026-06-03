@@ -4,12 +4,16 @@ import { tableLayerMap } from '../layers';
 import type { Positions } from './hooks/useCanvasNodes';
 import { nodeHeight, nodeWidth, type NodeMetricsOpts } from './nodeMetrics';
 
-const MARGIN = 16;
-const MAX_OVERLAP_ITER = 50;
-const COMPONENT_GAP = 80;
+const MARGIN = 20;
+const COMPONENT_GAP = 96;
 const CLUSTER_PAD_Y = 40;
+const GROUP_EXTRA_SEP = 24;
 
 type Rect = { id: string; x: number; y: number; w: number; h: number };
+
+function layoutMetrics(compact: boolean): NodeMetricsOpts {
+  return { compact, layout: true };
+}
 
 function layerForTable(t: TableView, layerMap: Record<string, string>): string | undefined {
   if (layerMap[t.id]) return layerMap[t.id];
@@ -37,7 +41,9 @@ function buildDegreeMap(parsed: ParseResult, ids: Set<string>): Map<string, numb
   for (const r of parsed.refs) bump(r.source, r.target);
   for (const entry of parsed.lineage) {
     if (!ids.has(entry.target)) continue;
-    for (const src of entry.sources) bump(src, entry.target);
+    for (const src of entry.sources) {
+      if (ids.has(src)) bump(src, entry.target);
+    }
   }
   return deg;
 }
@@ -77,11 +83,12 @@ function connectedComponents(ids: Set<string>, parsed: ParseResult): string[][] 
   return [...buckets.values()].map((members) => members.sort());
 }
 
-function dagreSpacing(n: number): { nodesep: number; ranksep: number } {
+function dagreSpacing(n: number, inGroup: boolean): { nodesep: number; ranksep: number } {
   const s = Math.sqrt(Math.max(1, n));
+  const extra = inGroup ? GROUP_EXTRA_SEP : 0;
   return {
-    nodesep: Math.max(48, Math.round(24 + 4 * s)),
-    ranksep: Math.max(90, Math.round(50 + 8 * s)),
+    nodesep: Math.max(56, Math.round(32 + 6 * s) + extra),
+    ranksep: Math.max(100, Math.round(60 + 10 * s) + extra),
   };
 }
 
@@ -89,11 +96,12 @@ function layoutSubset(
   tables: TableView[],
   parsed: ParseResult,
   metrics: NodeMetricsOpts,
+  inGroup: boolean,
 ): Positions {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  const { nodesep, ranksep } = dagreSpacing(tables.length);
-  g.setGraph({ rankdir: 'LR', nodesep, ranksep, marginx: 20, marginy: 20 });
+  const { nodesep, ranksep } = dagreSpacing(tables.length, inGroup);
+  g.setGraph({ rankdir: 'LR', nodesep, ranksep, marginx: 24, marginy: 24 });
 
   const ids = new Set(tables.map((t) => t.id));
   for (const t of tables) {
@@ -119,29 +127,71 @@ function layoutSubset(
   return out;
 }
 
-function layoutCluster(tables: TableView[], parsed: ParseResult, metrics: NodeMetricsOpts): Positions {
+/** Empacota tabelas isoladas (sem aresta entre si) em grade. */
+function packSingletonGrid(
+  tables: TableView[],
+  metrics: NodeMetricsOpts,
+  offsetY: number,
+): { positions: Positions; maxY: number } {
+  const positions: Positions = {};
+  if (!tables.length) return { positions, maxY: offsetY };
+
+  const cols = Math.max(1, Math.ceil(Math.sqrt(tables.length)));
+  const cellW =
+    Math.max(...tables.map((t) => nodeWidth(t, metrics)), 0) + MARGIN;
+  const cellH =
+    Math.max(...tables.map((t) => nodeHeight(t, metrics)), 0) + MARGIN;
+
+  let maxY = offsetY;
+  tables.forEach((t, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = col * cellW;
+    const y = offsetY + row * cellH;
+    positions[t.id] = { x, y };
+    maxY = Math.max(maxY, y + nodeHeight(t, metrics));
+  });
+
+  return { positions, maxY };
+}
+
+function layoutCluster(
+  tables: TableView[],
+  parsed: ParseResult,
+  metrics: NodeMetricsOpts,
+  inGroup: boolean,
+): Positions {
   const ids = new Set(tables.map((t) => t.id));
   const components = connectedComponents(ids, parsed);
   const tableById = new Map(tables.map((t) => [t.id, t] as const));
 
   const positions: Positions = {};
   let offsetY = 0;
+  const singletons: TableView[] = [];
 
   for (const memberIds of components) {
-    const subset = memberIds.map((id) => tableById.get(id)!).filter(Boolean);
-    if (!subset.length) continue;
+    if (memberIds.length === 1) {
+      const t = tableById.get(memberIds[0]);
+      if (t) singletons.push(t);
+      continue;
+    }
 
-    const local = layoutSubset(subset, parsed, metrics);
-    let maxX = 0;
-    let maxY = 0;
+    const subset = memberIds.map((id) => tableById.get(id)!).filter(Boolean);
+    const local = layoutSubset(subset, parsed, metrics, inGroup);
+    let maxY = offsetY;
     for (const t of subset) {
       const p = local[t.id];
       if (!p) continue;
       positions[t.id] = { x: p.x, y: p.y + offsetY };
-      maxX = Math.max(maxX, p.x + nodeWidth(t, metrics));
       maxY = Math.max(maxY, p.y + offsetY + nodeHeight(t, metrics));
     }
     offsetY = maxY + COMPONENT_GAP;
+  }
+
+  if (singletons.length) {
+    const packed = packSingletonGrid(singletons, metrics, offsetY);
+    Object.assign(positions, packed.positions);
+    offsetY = packed.maxY + COMPONENT_GAP;
   }
 
   return positions;
@@ -168,7 +218,17 @@ function toRects(positions: Positions, tables: TableView[], metrics: NodeMetrics
     }));
 }
 
-/** Empurra nós sobrepostos até separar (margem MARGIN). */
+function countOverlaps(rects: Rect[], margin: number): number {
+  let n = 0;
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      if (rectsOverlap(rects[i], rects[j], margin)) n++;
+    }
+  }
+  return n;
+}
+
+/** Empurra nós sobrepostos (só entre as tabelas do conjunto passado). */
 export function resolveOverlaps(
   positions: Positions,
   tables: TableView[],
@@ -178,10 +238,13 @@ export function resolveOverlaps(
   const ids = new Set(tables.map((t) => t.id));
   const degree = buildDegreeMap(parsed, ids);
   const pos: Positions = { ...positions };
+  const maxIter = Math.max(80, tables.length * 8);
 
-  for (let iter = 0; iter < MAX_OVERLAP_ITER; iter++) {
-    let moved = false;
+  for (let iter = 0; iter < maxIter; iter++) {
     const rects = toRects(pos, tables, metrics);
+    if (countOverlaps(rects, MARGIN) === 0) break;
+
+    let moved = false;
     for (let i = 0; i < rects.length; i++) {
       for (let j = i + 1; j < rects.length; j++) {
         const a = rects[i];
@@ -195,15 +258,19 @@ export function resolveOverlaps(
 
         const pushX = other.x + other.w + MARGIN - self.x;
         const pushY = other.y + other.h + MARGIN - self.y;
-        if (pushX > 0 && (pushY <= 0 || pushX <= pushY)) {
-          pos[moveId] = { ...pos[moveId], x: pos[moveId].x + pushX };
-        } else if (pushY > 0) {
-          pos[moveId] = { ...pos[moveId], y: pos[moveId].y + pushY };
-        } else {
-          pos[moveId] = { ...pos[moveId], x: pos[moveId].x + MARGIN + 1 };
+        const cur = pos[moveId];
+        if (pushX > 0) {
+          pos[moveId] = { x: cur.x + pushX, y: cur.y };
+          moved = true;
         }
-        moved = true;
-        rects[moveA ? i : j] = toRects(pos, [tables.find((t) => t.id === moveId)!], metrics)[0];
+        if (pushY > 0) {
+          pos[moveId] = { x: pos[moveId].x, y: pos[moveId].y + pushY };
+          moved = true;
+        }
+        if (pushX <= 0 && pushY <= 0) {
+          pos[moveId] = { x: cur.x + MARGIN + 1, y: cur.y };
+          moved = true;
+        }
       }
     }
     if (!moved) break;
@@ -214,7 +281,7 @@ export function resolveOverlaps(
 
 /** Autolayout por cluster (TableGroup → Layer/schema → default), sem sobreposição. */
 export function autolayoutPositions(parsed: ParseResult, compact = false): Positions {
-  const metrics: NodeMetricsOpts = { compact };
+  const metrics = layoutMetrics(compact);
   const layerMap = tableLayerMap(parsed.layerGroups);
 
   const byCluster = new Map<string, TableView[]>();
@@ -229,7 +296,10 @@ export function autolayoutPositions(parsed: ParseResult, compact = false): Posit
 
   for (const key of sortedKeys) {
     const tables = byCluster.get(key)!;
-    const cluster = layoutCluster(tables, parsed, metrics);
+    const inGroup = key.startsWith('group:');
+    let cluster = layoutCluster(tables, parsed, metrics, inGroup);
+    cluster = resolveOverlaps(cluster, tables, parsed, metrics);
+
     let clusterMaxX = offsetX;
     for (const t of tables) {
       const p = cluster[t.id];
@@ -239,9 +309,9 @@ export function autolayoutPositions(parsed: ParseResult, compact = false): Posit
       clusterMaxX = Math.max(clusterMaxX, x + nodeWidth(t, metrics));
     }
     const clusterWidth = clusterMaxX - offsetX;
-    const clusterGap = Math.max(100, Math.round(clusterWidth * 0.15));
+    const clusterGap = Math.max(120, Math.round(clusterWidth * 0.18));
     offsetX = clusterMaxX + clusterGap;
   }
 
-  return resolveOverlaps(positions, parsed.tables, parsed, metrics);
+  return positions;
 }
