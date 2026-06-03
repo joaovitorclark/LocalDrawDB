@@ -60,6 +60,7 @@ export default function App() {
   const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const [autoSave, setAutoSave] = useState(false);
   const [focusTableId, setFocusTableId] = useState<string | null>(null);
+  const [editorCollapsed, setEditorCollapsed] = useState(false);
   const loadedRef = useRef(false);
   const selectColumn = useInteraction((s) => s.selectColumn);
 
@@ -409,8 +410,24 @@ export default function App() {
         </span>
       </header>
 
-      <main className="panes">
+      <main className={`panes ${editorCollapsed ? 'panes--editor-collapsed' : ''}`}>
         <section className="pane pane--editor">
+          <button
+            type="button"
+            className="pane-collapse"
+            onClick={() => setEditorCollapsed((c) => !c)}
+            title={editorCollapsed ? 'Mostrar editor DBML' : 'Ocultar editor DBML'}
+            aria-label={editorCollapsed ? 'Mostrar editor DBML' : 'Ocultar editor DBML'}
+            aria-expanded={!editorCollapsed}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+              {editorCollapsed ? (
+                <path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              ) : (
+                <path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
+          </button>
           <Editor value={dbml} onChange={setDbml} error={parsed.error} onFocusTable={focusTable} />
         </section>
         <section className="pane pane--canvas">

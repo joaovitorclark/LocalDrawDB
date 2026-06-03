@@ -13,7 +13,7 @@ import { useCanvasNodes, useHoverHighlight, type NodeOpts, type Positions } from
 import { useInteraction } from '../store/interaction';
 import type { ParseResult } from '../dsl/parse';
 import type { LineageLink } from '../api';
-import { DEFAULT_LINEAGE_SOURCE, DEFAULT_LINEAGE_TARGET, isLineageHandle } from './lineageHandles';
+import { DEFAULT_LINEAGE_SOURCE, DEFAULT_LINEAGE_TARGET, isLineageHandle, pickLineageHandles } from './lineageHandles';
 
 const stripHandle = (h: string | null | undefined) => (h ? h.replace(/^[st]:/, '') : '');
 const nodeTypes = { table: TableNode, group: GroupNode };
@@ -128,15 +128,26 @@ export function Canvas(props: Props) {
               data: { onRemove: () => onRemoveLineage(l.source, l.target) },
             };
             if (lineageMode) {
-              edge.sourceHandle = prior?.sourceHandle ?? DEFAULT_LINEAGE_SOURCE;
-              edge.targetHandle = prior?.targetHandle ?? DEFAULT_LINEAGE_TARGET;
+              if (prior?.sourceHandle && prior?.targetHandle) {
+                edge.sourceHandle = prior.sourceHandle;
+                edge.targetHandle = prior.targetHandle;
+              } else {
+                const sp = positions[l.source];
+                const tp = positions[l.target];
+                const handles =
+                  sp && tp
+                    ? pickLineageHandles(sp, tp)
+                    : { sourceHandle: DEFAULT_LINEAGE_SOURCE, targetHandle: DEFAULT_LINEAGE_TARGET };
+                edge.sourceHandle = handles.sourceHandle;
+                edge.targetHandle = handles.targetHandle;
+              }
             }
             return edge;
           })
         : [];
       return [...relEdges, ...linEdges];
     });
-  }, [parsed.refs, lineage, lineageMode, showLineage, setEdges, onRemoveRef, onRemoveLineage]);
+  }, [parsed.refs, lineage, lineageMode, showLineage, positions, setEdges, onRemoveRef, onRemoveLineage]);
 
   useEffect(() => {
     setEdges((prev) => prev.map((e) => {
@@ -161,10 +172,42 @@ export function Canvas(props: Props) {
     if (!c.source || !c.target) return;
     if (lineageMode) {
       onCreateLineage(c.source, c.target);
+      const id = `lin:${c.source}->${c.target}`;
+      const sourceHandle =
+        c.sourceHandle && isLineageHandle(c.sourceHandle)
+          ? c.sourceHandle
+          : (() => {
+              const sp = positions[c.source];
+              const tp = positions[c.target];
+              return sp && tp ? pickLineageHandles(sp, tp).sourceHandle : DEFAULT_LINEAGE_SOURCE;
+            })();
+      const targetHandle =
+        c.targetHandle && isLineageHandle(c.targetHandle)
+          ? c.targetHandle
+          : (() => {
+              const sp = positions[c.source];
+              const tp = positions[c.target];
+              return sp && tp ? pickLineageHandles(sp, tp).targetHandle : DEFAULT_LINEAGE_TARGET;
+            })();
+      setEdges((prev) => {
+        const rest = prev.filter((e) => e.id !== id);
+        return [
+          ...rest,
+          {
+            id,
+            source: c.source!,
+            target: c.target!,
+            type: 'lineage',
+            sourceHandle,
+            targetHandle,
+            data: { onRemove: () => onRemoveLineage(c.source!, c.target!) },
+          },
+        ];
+      });
       return;
     }
     onCreateRef(c.source, stripHandle(c.sourceHandle), c.target, stripHandle(c.targetHandle));
-  }, [lineageMode, onCreateLineage, onCreateRef]);
+  }, [lineageMode, onCreateLineage, onCreateRef, onRemoveLineage, positions, setEdges]);
 
   // Mover grupo inteiro: aplica o delta às tabelas-membro.
   const groupDrag = useRef<{ name: string; last: { x: number; y: number } } | null>(null);

@@ -31,6 +31,35 @@ export const LINEAGE_PORTS: LineagePort[] = [
 export const DEFAULT_LINEAGE_SOURCE = 'lin-r-1-s';
 export const DEFAULT_LINEAGE_TARGET = 'lin-l-1-t';
 
+const LINEAGE_CARD_W = 230;
+const LINEAGE_CARD_H = 56;
+
+/** Escolhe portas de saída/entrada pelo lado mais curto entre os dois nós. */
+export function pickLineageHandles(
+  sourcePos: { x: number; y: number },
+  targetPos: { x: number; y: number },
+  sourceW = LINEAGE_CARD_W,
+  targetW = LINEAGE_CARD_W,
+): { sourceHandle: string; targetHandle: string } {
+  const scx = sourcePos.x + sourceW / 2;
+  const tcx = targetPos.x + targetW / 2;
+  const scy = sourcePos.y + LINEAGE_CARD_H / 2;
+  const tcy = targetPos.y + LINEAGE_CARD_H / 2;
+  const dx = tcx - scx;
+  const dy = tcy - scy;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx <= 0) {
+      return { sourceHandle: 'lin-l-1-s', targetHandle: 'lin-r-1-t' };
+    }
+    return { sourceHandle: 'lin-r-1-s', targetHandle: 'lin-l-1-t' };
+  }
+  if (dy <= 0) {
+    return { sourceHandle: 'lin-t-1-s', targetHandle: 'lin-b-1-t' };
+  }
+  return { sourceHandle: 'lin-b-1-s', targetHandle: 'lin-t-1-t' };
+}
+
 export function isLineageHandle(id: string | null | undefined): boolean {
   return !!id?.startsWith('lin-');
 }

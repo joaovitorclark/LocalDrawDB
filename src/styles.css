@@ -112,15 +112,55 @@ body {
   min-width: 0;
 }
 .pane--editor {
+  position: relative;
   width: 40%;
   border-right: 1px solid var(--border);
   display: flex;
   overflow: hidden;
   min-height: 0;
+  transition: width 0.18s ease, min-width 0.18s ease;
+}
+.panes--editor-collapsed .pane--editor {
+  width: 32px;
+  min-width: 32px;
+}
+.panes--editor-collapsed .pane--editor .editor {
+  visibility: hidden;
+  pointer-events: none;
+}
+.pane-collapse {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.pane-collapse:hover {
+  color: var(--text);
+  background: #f0f4f8;
+}
+.panes--editor-collapsed .pane-collapse {
+  right: auto;
+  left: 3px;
 }
 .pane--canvas {
   width: 60%;
   background: var(--canvas-bg);
+  transition: width 0.18s ease;
+}
+.panes--editor-collapsed .pane--canvas {
+  width: calc(100% - 32px);
 }
 
 /* Editor */
