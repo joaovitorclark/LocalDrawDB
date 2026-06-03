@@ -3,6 +3,8 @@
 import { useEffect, type MutableRefObject } from 'react';
 import type { Node } from 'reactflow';
 import type { ParseResult, TableView } from '../../dsl/parse';
+import { nodeHeight, nodeWidth } from '../nodeMetrics';
+import { useInteraction } from '../../store/interaction';
 
 export type Positions = Record<string, { x: number; y: number }>;
 
@@ -12,9 +14,6 @@ export type NodeOpts = {
   dimmedTables: Set<string>; // esmaecidas (camada em modo esmaecer)
   onToggleGroup: (name: string) => void;
 };
-
-const TABLE_W = 230;
-const estHeight = (t: TableView) => 34 + t.columns.length * 25 + 26;
 
 function gridPosition(index: number): { x: number; y: number } {
   const COLS = 3;
@@ -26,12 +25,17 @@ function groupNodes(
   tables: TableView[],
   posOf: (t: TableView, i: number) => { x: number; y: number },
   opts: NodeOpts,
+  compact: boolean,
 ): Node[] {
+  const metrics = { compact };
   const byGroup = new Map<string, { x: number; y: number; w: number; h: number }[]>();
   tables.forEach((t, i) => {
     if (!t.group) return;
     const p = posOf(t, i);
-    byGroup.set(t.group, [...(byGroup.get(t.group) ?? []), { x: p.x, y: p.y, w: TABLE_W, h: estHeight(t) }]);
+    byGroup.set(t.group, [
+      ...(byGroup.get(t.group) ?? []),
+      { x: p.x, y: p.y, w: nodeWidth(t, metrics), h: nodeHeight(t, metrics) },
+    ]);
   });
 
   const pad = 24;
@@ -70,6 +74,7 @@ export function useCanvasNodes(
   relatedRef: MutableRefObject<Set<string> | null>,
   opts: NodeOpts,
 ): void {
+  const lineageMode = useInteraction((s) => s.lineageMode);
   useEffect(() => {
     setNodes((prev) => {
       const prevPos = new Map(
@@ -87,9 +92,9 @@ export function useCanvasNodes(
         style: opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : undefined,
         className: classOf(t.id, relatedRef.current),
       }));
-      return [...groupNodes(parsed.tables, posOf, opts), ...tableNodes];
+      return [...groupNodes(parsed.tables, posOf, opts, lineageMode), ...tableNodes];
     });
-  }, [parsed.tables, positions, setNodes, relatedRef, opts]);
+  }, [parsed.tables, positions, setNodes, relatedRef, opts, lineageMode]);
 }
 
 /** Atualiza apenas o `className` (highlight/dim de hover) sem mexer na posição. */

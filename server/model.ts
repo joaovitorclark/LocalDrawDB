@@ -31,6 +31,8 @@ export type Ref = {
 export type Model = {
   tables: Table[];
   refs: Ref[];
+  /** Avisos do import SQL (ex.: FK composta com aridade divergente). */
+  warnings?: string[];
 };
 
 /** Quebra "decimal(18,2)" em { base: "decimal", args: "18,2" }. */

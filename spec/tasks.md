@@ -56,3 +56,17 @@ Ordem de execução derivada de [`spec.md`](./spec.md) + [`plan.md`](./plan.md).
 - [x] Painel Problemas (`validateModel`)
 - [x] Autolayout dagre por TableGroup (`Organizar canvas`)
 - [x] README e SAMPLE atualizados
+
+## Fase v7 — CONSTRAINT / FK composta no import SQL
+- [x] `spec/v7-constraints-fk.md`
+- [x] `extractForeignKeysFromStmt` — FK composta + multiline + CONSTRAINT nomeada
+- [x] Warnings de aridade divergente → API import + painel Problemas
+- [x] Testes `sqlImport.test.ts`; `@fk` redundantes removidos de `tmp/autorizacao.sql`
+
+## Fase v8 — Autolayout sem sobreposição
+- [x] `spec/v8-autolayout-no-overlap.md`
+- [x] `nodeMetrics.ts` — dimensões unificadas
+- [x] Cluster por TableGroup / layer / schema + componentes desconexos
+- [x] `resolveOverlaps` + dagre adaptativo
+- [x] `fitView` após Organizar canvas
+- [x] Testes Vitest (overlap, layer, denso, performance)

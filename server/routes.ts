@@ -49,8 +49,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const inputs = await readInputSql();
     let merged = model;
     const imported: string[] = [];
+    const warnings: string[] = [];
     for (const { file, content } of inputs) {
       const incoming = sqlToModel(content);
+      if (incoming.warnings?.length) {
+        for (const w of incoming.warnings) warnings.push(`${file}: ${w}`);
+      }
       if (incoming.tables.length) {
         merged = mergeModel(merged, incoming);
         const refCount = incoming.refs.length;
@@ -59,7 +63,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         );
       }
     }
-    return { dbml: modelToDbml(merged), imported };
+    return {
+      dbml: modelToDbml(merged),
+      imported,
+      warnings: warnings.length ? warnings : undefined,
+    };
   });
 
   // Exporta DDL Spark por schema para data/output/.

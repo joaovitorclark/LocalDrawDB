@@ -38,7 +38,7 @@ export async function saveProject(dbml: string, canvas: CanvasState): Promise<vo
 }
 
 export const importFromInput = (dbml: string) =>
-  post<{ dbml: string; imported: string[] }>('/api/import', { dbml });
+  post<{ dbml: string; imported: string[]; warnings?: string[] }>('/api/import', { dbml });
 
 export const exportDdl = (dbml: string) => post<{ files: string[] }>('/api/export/ddl', { dbml });
 export const exportDbt = (dbml: string) => post<{ files: string[] }>('/api/export/dbt', { dbml });

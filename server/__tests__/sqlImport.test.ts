@@ -52,6 +52,78 @@ describe('sqlToModel refs', () => {
     expect(fk?.to.table).toBe('raw.customers');
     expect(fk?.to.column).toBe('id');
   });
+
+  it('extrai FK composta (2 colunas) e gera um Ref por par', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.fato_item (
+  num_pedido STRING,
+  num_seq SMALLINT,
+  CONSTRAINT pk_item PRIMARY KEY (num_pedido, num_seq),
+  CONSTRAINT fk_item_seq FOREIGN KEY (num_pedido, num_seq)
+    REFERENCES silver.fato_seq (num_pedido, num_seq)
+) USING DELTA;
+CREATE TABLE silver.fato_seq (
+  num_pedido STRING,
+  num_seq SMALLINT,
+  CONSTRAINT pk_seq PRIMARY KEY (num_pedido, num_seq)
+) USING DELTA;
+`);
+    const pairs = m.refs.filter((r) => r.from.table === 'silver.fato_item');
+    expect(pairs).toHaveLength(2);
+    expect(pairs.map((r) => r.from.column).sort()).toEqual(['num_pedido', 'num_seq']);
+    expect(pairs.every((r) => r.to.table === 'silver.fato_seq')).toBe(true);
+  });
+
+  it('extrai FK composta de 3 colunas', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.msg (
+  a STRING,
+  b SMALLINT,
+  c SMALLINT,
+  CONSTRAINT fk_msg_item FOREIGN KEY (a, b, c)
+    REFERENCES silver.item (a, b, c)
+) USING DELTA;
+CREATE TABLE silver.item (
+  a STRING,
+  b SMALLINT,
+  c SMALLINT,
+  PRIMARY KEY (a, b, c)
+) USING DELTA;
+`);
+    expect(m.refs.filter((r) => r.from.table === 'silver.msg')).toHaveLength(3);
+  });
+
+  it('dedupe CONSTRAINT composta e @fk por coluna', () => {
+    const m = sqlToModel(`
+-- @fk: num_pedido -> silver.seq.num_pedido
+-- @fk: num_seq -> silver.seq.num_seq
+CREATE TABLE silver.child (
+  num_pedido STRING,
+  num_seq SMALLINT,
+  CONSTRAINT fk_child FOREIGN KEY (num_pedido, num_seq)
+    REFERENCES silver.seq (num_pedido, num_seq)
+) USING DELTA;
+CREATE TABLE silver.seq (
+  num_pedido STRING,
+  num_seq SMALLINT,
+  PRIMARY KEY (num_pedido, num_seq)
+) USING DELTA;
+`);
+    expect(m.refs.filter((r) => r.from.table === 'silver.child')).toHaveLength(2);
+  });
+
+  it('avisa e ignora FK com aridade divergente', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.bad (
+  a STRING,
+  b STRING,
+  CONSTRAINT fk_bad FOREIGN KEY (a, b) REFERENCES silver.tgt (a)
+) USING DELTA;
+CREATE TABLE silver.tgt (a STRING, PRIMARY KEY (a)) USING DELTA;
+`);
+    expect(m.refs.filter((r) => r.from.table === 'silver.bad')).toHaveLength(0);
+    expect(m.warnings?.some((w) => /silver\.bad/i.test(w) && /!=/i.test(w))).toBe(true);
+  });
 });
 
 describe('sqlToModel composite PK', () => {

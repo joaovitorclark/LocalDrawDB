@@ -35,7 +35,18 @@ type Props = {
   onToggleGroup: (name: string) => void;
   focusTableId?: string | null;
   onFocusTableDone?: () => void;
+  /** Incrementa após Organizar canvas para dar fitView. */
+  fitViewTrigger?: number;
 };
+
+function AutolayoutFitHelper({ trigger }: { trigger?: number }) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    if (!trigger) return;
+    fitView({ padding: 0.12, duration: 200 });
+  }, [trigger, fitView]);
+  return null;
+}
 
 function FocusTableHelper({
   tableId,
@@ -57,7 +68,7 @@ function FocusTableHelper({
 export function Canvas(props: Props) {
   const { parsed, positions, onPositionsChange, onCreateRef, onRemoveRef, lineage,
     onCreateLineage, onRemoveLineage, layerOf, collapsedGroups, onToggleGroup,
-    focusTableId, onFocusTableDone } = props;
+    focusTableId, onFocusTableDone, fitViewTrigger } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const hovered = useInteraction((s) => s.hoveredTableId);
@@ -298,6 +309,7 @@ export function Canvas(props: Props) {
         fitView
         minZoom={0.1}
       >
+        <AutolayoutFitHelper trigger={fitViewTrigger} />
         <FocusTableHelper tableId={focusTableId} onDone={onFocusTableDone} />
         <Background />
         <Controls />

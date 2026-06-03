@@ -223,23 +223,39 @@ function parseColumnsFallback(body: string): ParseColResult {
   return { columns, compositePks };
 }
 
-/** FKs no texto do CREATE (FOREIGN KEY ... REFERENCES e REFERENCES inline). */
+function splitFkColumnList(inner: string): string[] {
+  return inner.split(',').map((c) => c.replace(/[`"\s]/g, '').trim()).filter(Boolean);
+}
+
+/** FKs no CREATE: CONSTRAINT … FOREIGN KEY (cols) REFERENCES t (cols) — simples ou composta. */
 function extractForeignKeysFromStmt(
   stmt: string,
   table: Pick<Table, 'name' | 'schema'>,
+  warnings: string[],
 ): Ref[] {
   const refs: Ref[] = [];
   const fromTable = qualifiedName(table);
 
   const fkRe =
-    /foreign\s+key\s*\(\s*([`"]?[A-Za-z_][\w]*[`"]?)\s*\)\s*references\s+([`"]?[A-Za-z0-9_."]+)\s*\(\s*([`"]?[A-Za-z_][\w]*[`"]?)\s*\)/gi;
+    /(?:constraint\s+\w+\s+)?foreign\s+key\s*\(([^)]*)\)\s*references\s+([`"]?[A-Za-z0-9_."]+)\s*\(([^)]*)\)/gi;
   let m: RegExpExecArray | null;
   while ((m = fkRe.exec(stmt)) !== null) {
-    refs.push({
-      from: { table: fromTable, column: m[1].replace(/[`"]/g, '') },
-      to: { table: m[2].replace(/[`"]/g, ''), column: m[3].replace(/[`"]/g, '') },
-      kind: '>',
-    });
+    const fromCols = splitFkColumnList(m[1]);
+    const toTable = m[2].replace(/[`"]/g, '');
+    const toCols = splitFkColumnList(m[3]);
+    if (fromCols.length !== toCols.length) {
+      warnings.push(
+        `FK em ${fromTable}: ${fromCols.length} coluna(s) de origem != ${toCols.length} em ${toTable}`,
+      );
+      continue;
+    }
+    for (let i = 0; i < fromCols.length; i++) {
+      refs.push({
+        from: { table: fromTable, column: fromCols[i] },
+        to: { table: toTable, column: toCols[i] },
+        kind: '>',
+      });
+    }
   }
 
   const inlineRe =
@@ -398,6 +414,7 @@ function applyOracleComments(tables: Table[], sql: string): void {
 export function sqlToModel(sql: string): Model {
   const tables: Table[] = [];
   const refs: Ref[] = [];
+  const warnings: string[] = [];
   const refSeen = new Set<string>();
   const metaMap = extractMetaComments(sql);
   const stmts = splitStatements(sql);
@@ -427,7 +444,7 @@ export function sqlToModel(sql: string): Model {
       metaMap.delete(createLine);
     }
 
-    for (const r of extractForeignKeysFromStmt(stripLineComments(stmt), t)) addRef(r);
+    for (const r of extractForeignKeysFromStmt(stripLineComments(stmt), t, warnings)) addRef(r);
 
     const inserts = parseInserts(sql, t.name);
     if (inserts.rows.length) {
@@ -441,7 +458,7 @@ export function sqlToModel(sql: string): Model {
   }
 
   applyOracleComments(tables, sql);
-  return { tables, refs };
+  return { tables, refs, warnings: warnings.length ? warnings : undefined };
 }
 
 /** @deprecated Use sqlToModel */
@@ -464,7 +481,12 @@ export function mergeModel(base: Model, incoming: Model): Model {
     }
   }
 
-  return { tables: [...byKey.values()], refs };
+  const warnings = [...(base.warnings ?? []), ...(incoming.warnings ?? [])];
+  return {
+    tables: [...byKey.values()],
+    refs,
+    warnings: warnings.length ? warnings : undefined,
+  };
 }
 
 /** Mescla só tabelas (compat). */

@@ -61,6 +61,7 @@ export default function App() {
   const [autoSave, setAutoSave] = useState(false);
   const [focusTableId, setFocusTableId] = useState<string | null>(null);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const loadedRef = useRef(false);
   const selectColumn = useInteraction((s) => s.selectColumn);
 
@@ -197,7 +198,16 @@ export default function App() {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
-  const modelIssues = useMemo(() => validateModel(canvasModel), [canvasModel]);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+
+  const modelIssues = useMemo(() => {
+    const issues = validateModel(canvasModel);
+    const fromImport = importWarnings.map((message) => ({
+      severity: 'error' as const,
+      message,
+    }));
+    return [...fromImport, ...issues];
+  }, [canvasModel, importWarnings]);
 
   const focusTable = useCallback((tableId: string) => {
     setFocusTableId(tableId);
@@ -207,7 +217,8 @@ export default function App() {
   const handleAutolayout = useCallback(() => {
     const lineageMode = useInteraction.getState().lineageMode;
     setPositions(autolayoutPositions(canvasModel, lineageMode));
-    setStatus('Canvas reorganizado');
+    setFitViewTrigger((n) => n + 1);
+    setStatus(`Canvas reorganizado (${canvasModel.tables.length} tabelas)`);
     setSaveState('dirty');
   }, [canvasModel]);
 
@@ -317,9 +328,13 @@ export default function App() {
 
   const handleImport = () =>
     run('Importando', async () => {
-      const { dbml: merged, imported } = await api.importFromInput(dbml);
+      const { dbml: merged, imported, warnings } = await api.importFromInput(dbml);
       setDbml(merged);
-      return imported.length ? `Importado: ${imported.join(', ')}` : 'Nenhum .sql em data/input/';
+      setImportWarnings(warnings ?? []);
+      const warnNote = warnings?.length ? ` — ${warnings.length} aviso(s) no painel Problemas` : '';
+      return imported.length
+        ? `Importado: ${imported.join(', ')}${warnNote}`
+        : 'Nenhum .sql em data/input/';
     });
 
   const handleExport = (
@@ -446,6 +461,7 @@ export default function App() {
               onToggleGroup={handleToggleGroup}
               focusTableId={focusTableId}
               onFocusTableDone={() => setFocusTableId(null)}
+              fitViewTrigger={fitViewTrigger}
             />
             <LayersPanel
               layers={layersArr}
