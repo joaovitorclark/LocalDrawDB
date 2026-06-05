@@ -14,6 +14,7 @@ import { useInteraction } from '../store/interaction';
 import type { ParseResult } from '../dsl/parse';
 import type { LineageLink } from '../api';
 import { DEFAULT_LINEAGE_SOURCE, DEFAULT_LINEAGE_TARGET, isLineageHandle, pickLineageHandles } from './lineageHandles';
+import { diagramOverviewBounds, focusTableInView } from './focusTableView';
 
 const stripHandle = (h: string | null | undefined) => (h ? h.replace(/^[st]:/, '') : '');
 const nodeTypes = { table: TableNode, group: GroupNode };
@@ -39,12 +40,45 @@ type Props = {
   fitViewTrigger?: number;
 };
 
+function fitDiagram(
+  getNodes: () => Node[],
+  fitBounds: ReturnType<typeof useReactFlow>['fitBounds'],
+  duration = 0,
+) {
+  const bounds = diagramOverviewBounds(getNodes());
+  if (!bounds) return false;
+  fitBounds(bounds, { padding: 0.14, duration });
+  return true;
+}
+
 function AutolayoutFitHelper({ trigger }: { trigger?: number }) {
-  const { fitView } = useReactFlow();
+  const { fitBounds, getNodes } = useReactFlow();
   useEffect(() => {
     if (!trigger) return;
-    fitView({ padding: 0.12, duration: 200 });
-  }, [trigger, fitView]);
+    fitDiagram(getNodes, fitBounds, 200);
+  }, [trigger, fitBounds, getNodes]);
+  return null;
+}
+
+function InitialFitHelper({ tableCount }: { tableCount: number }) {
+  const { fitBounds, getNodes } = useReactFlow();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || tableCount === 0) return;
+    let cancelled = false;
+    const tryFit = (attempt = 0) => {
+      if (cancelled || done.current) return;
+      if (fitDiagram(getNodes, fitBounds, 0)) {
+        done.current = true;
+        return;
+      }
+      if (attempt < 40) requestAnimationFrame(() => tryFit(attempt + 1));
+    };
+    requestAnimationFrame(() => tryFit());
+    return () => {
+      cancelled = true;
+    };
+  }, [tableCount, fitBounds, getNodes]);
   return null;
 }
 
@@ -55,13 +89,24 @@ function FocusTableHelper({
   tableId: string | null | undefined;
   onDone?: () => void;
 }) {
-  const { fitView, getNode } = useReactFlow();
+  const { setCenter, getNode } = useReactFlow();
   useEffect(() => {
     if (!tableId) return;
-    const node = getNode(tableId);
-    if (node) fitView({ nodes: [node], padding: 0.45, duration: 280, maxZoom: 1.25 });
-    onDone?.();
-  }, [tableId, fitView, getNode, onDone]);
+    let cancelled = false;
+    const tryFocus = (attempt = 0) => {
+      if (cancelled) return;
+      if (focusTableInView(getNode, setCenter, tableId)) {
+        onDone?.();
+        return;
+      }
+      if (attempt < 40) requestAnimationFrame(() => tryFocus(attempt + 1));
+      else onDone?.();
+    };
+    requestAnimationFrame(() => tryFocus());
+    return () => {
+      cancelled = true;
+    };
+  }, [tableId, setCenter, getNode, onDone]);
   return null;
 }
 
@@ -72,6 +117,7 @@ export function Canvas(props: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const hovered = useInteraction((s) => s.hoveredTableId);
+  const selectedTable = useInteraction((s) => s.selectedTable);
   const setHovered = useInteraction((s) => s.setHovered);
   const selectColumn = useInteraction((s) => s.selectColumn);
   const selectTable = useInteraction((s) => s.selectTable);
@@ -83,15 +129,26 @@ export function Canvas(props: Props) {
   const showLineage = lineageVisible || lineageMode;
   const [connecting, setConnecting] = useState(false);
 
+  /** Tabela em foco: seleção tem prioridade sobre hover (destaca FKs + linhagem). */
+  const focusTable = selectedTable ?? hovered;
+
   const related = useMemo(() => {
-    if (!hovered) return null;
-    const set = new Set<string>([hovered]);
-    for (const r of parsed.refs) {
-      if (r.source === hovered) set.add(r.target);
-      if (r.target === hovered) set.add(r.source);
+    if (!focusTable) return null;
+    const set = new Set<string>([focusTable]);
+    if (!lineageMode) {
+      for (const r of parsed.refs) {
+        if (r.source === focusTable) set.add(r.target);
+        if (r.target === focusTable) set.add(r.source);
+      }
+    }
+    if (showLineage) {
+      for (const l of lineage) {
+        if (l.source === focusTable) set.add(l.target);
+        if (l.target === focusTable) set.add(l.source);
+      }
     }
     return set;
-  }, [hovered, parsed.refs]);
+  }, [focusTable, parsed.refs, lineage, lineageMode, showLineage]);
   const relatedRef = useRef(related);
   relatedRef.current = related;
 
@@ -161,12 +218,35 @@ export function Canvas(props: Props) {
   }, [parsed.refs, lineage, lineageMode, showLineage, positions, setEdges, onRemoveRef, onRemoveLineage]);
 
   useEffect(() => {
-    setEdges((prev) => prev.map((e) => {
-      if (e.type !== 'relation') return e;
-      const touches = hovered ? e.source === hovered || e.target === hovered : false;
-      return { ...e, animated: touches, className: hovered ? (touches ? 'edge--highlight' : 'edge--dimmed') : undefined, data: { ...e.data, highlighted: touches } };
-    }));
-  }, [hovered, setEdges]);
+    setEdges((prev) =>
+      prev.map((e) => {
+        if (e.type !== 'relation' && e.type !== 'lineage') return e;
+        if (!focusTable) {
+          return {
+            ...e,
+            animated: false,
+            className: undefined,
+            data: { ...e.data, highlighted: false, dimmed: false },
+          };
+        }
+        const touches = e.source === focusTable || e.target === focusTable;
+        const highlightCls =
+          e.type === 'lineage'
+            ? touches
+              ? 'edge--highlight edge--lineage'
+              : 'edge--dimmed'
+            : touches
+              ? 'edge--highlight'
+              : 'edge--dimmed';
+        return {
+          ...e,
+          animated: touches,
+          className: highlightCls,
+          data: { ...e.data, highlighted: touches, dimmed: !touches },
+        };
+      }),
+    );
+  }, [focusTable, setEdges]);
 
   const isValidConnection = useCallback(
     (c: Connection) => {
@@ -306,9 +386,9 @@ export function Canvas(props: Props) {
           else if (n.type === 'group') selectGroup(n.id.replace(/^group:/, ''));
         }}
         onPaneClick={() => { selectColumn(null); selectTable(null); selectGroup(null); }}
-        fitView
-        minZoom={0.1}
+        minZoom={0.25}
       >
+        <InitialFitHelper tableCount={parsed.tables.length} />
         <AutolayoutFitHelper trigger={fitViewTrigger} />
         <FocusTableHelper tableId={focusTableId} onDone={onFocusTableDone} />
         <Background />

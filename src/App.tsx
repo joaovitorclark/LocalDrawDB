@@ -209,6 +209,8 @@ export default function App() {
     return [...fromImport, ...issues];
   }, [canvasModel, importWarnings]);
 
+  const clearFocusTable = useCallback(() => setFocusTableId(null), []);
+
   const focusTable = useCallback((tableId: string) => {
     setFocusTableId(tableId);
     useInteraction.getState().selectTable(tableId);
@@ -460,7 +462,7 @@ export default function App() {
               collapsedGroups={collapsedGroups}
               onToggleGroup={handleToggleGroup}
               focusTableId={focusTableId}
-              onFocusTableDone={() => setFocusTableId(null)}
+              onFocusTableDone={clearFocusTable}
               fitViewTrigger={fitViewTrigger}
             />
             <LayersPanel

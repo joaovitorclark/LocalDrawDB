@@ -893,7 +893,7 @@ body {
   cursor: default;
 }
 
-/* Hover-highlight do canvas */
+/* Destaque no canvas (seleção ou hover): FKs, linhagem e tabelas relacionadas */
 .react-flow__node.node--related .table-node {
   outline: 2px solid var(--brand-green);
   outline-offset: 1px;
@@ -907,6 +907,14 @@ body {
 }
 .react-flow__edge.edge--highlight path {
   filter: drop-shadow(0 0 2px var(--brand-green));
+}
+.react-flow__edge.edge--lineage.edge--highlight path {
+  filter: drop-shadow(0 0 3px #8b5cf6);
+}
+.lineage-label--active {
+  border-color: #7c3aed;
+  font-weight: 600;
+  box-shadow: 0 0 6px rgba(124, 58, 237, 0.35);
 }
 .react-flow__edge {
   cursor: pointer;
