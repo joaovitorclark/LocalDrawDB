@@ -27,5 +27,12 @@ export function modelToMermaid(model: Model): string {
       return `  ${to} ||--o{ ${from} : "${r.from.column}"`;
     })
     .join('\n');
-  return `erDiagram\n${entities}${rels ? '\n' + rels : ''}\n`;
+  const maps =
+    model.lineageFields?.map((f) => {
+      const meta = [f.note && `note: ${f.note}`, f.ref && `ref: ${f.ref}`].filter(Boolean).join(', ');
+      const suffix = meta ? ` [${meta}]` : '';
+      return `%% @map ${f.targetTable}.${f.targetColumn} <- ${f.sourceTable}.${f.sourceColumn}${suffix}`;
+    }).join('\n') ?? '';
+  const body = `erDiagram\n${entities}${rels ? '\n' + rels : ''}`;
+  return maps ? `${body}\n\n${maps}\n` : `${body}\n`;
 }

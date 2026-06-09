@@ -406,6 +406,32 @@ export function updateFieldLineageMeta(
   );
 }
 
+type FieldLineageKey = {
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+};
+
+/** Substitui um mapeamento existente (inclui mudança de origem/destino). */
+export function updateFieldLineageEntry(
+  src: string,
+  prev: FieldLineageKey,
+  next: FieldLineageKey & { note?: string; ref?: string },
+): string {
+  const without = removeFieldLineageEntry(
+    src, prev.sourceTable, prev.sourceColumn, prev.targetTable, prev.targetColumn,
+  );
+  return addFieldLineageEntry(
+    without,
+    next.sourceTable,
+    next.sourceColumn,
+    next.targetTable,
+    next.targetColumn,
+    { note: next.note, ref: next.ref },
+  );
+}
+
 /** Remove bloco `Ref` ou FK inline `[ref: > …]` do par indicado. */
 export function removeRef(
   src: string,

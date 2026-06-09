@@ -4,6 +4,13 @@ import { create } from 'zustand';
 
 export type SelectedColumn = { table: string; column: string } | null;
 
+export type FieldMappingFocus = {
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+};
+
 type InteractionState = {
   hoveredTableId: string | null;
   setHovered: (id: string | null) => void;
@@ -36,8 +43,15 @@ type InteractionState = {
   // Linhagem campo-a-campo (v9): arestas visuais opcionais.
   fieldLineageVisible: boolean;
   toggleFieldLineageVisible: () => void;
-  focusedFieldMapping: { sourceTable: string; sourceColumn: string; targetTable: string; targetColumn: string } | null;
+  focusedFieldMapping: FieldMappingFocus | null;
   setFocusedFieldMapping: (m: InteractionState['focusedFieldMapping']) => void;
+  /** Incrementa ao focar mapeamento no painel (pan no canvas). */
+  fieldMappingFocusNonce: number;
+  focusFieldMapping: (m: FieldMappingFocus) => void;
+  /** Clique numa aresta L2 no canvas (modo linhagem): foca, seleciona tabela destino e abre painel. */
+  selectFieldLineageMapping: (m: FieldMappingFocus) => void;
+  mappingPanelOpen: boolean;
+  toggleMappingPanel: () => void;
 };
 
 export const useInteraction = create<InteractionState>((set) => ({
@@ -63,7 +77,7 @@ export const useInteraction = create<InteractionState>((set) => ({
   selectGroup: (id) =>
     set({ selectedGroup: id, selectedTable: null, selectedTableIds: [] }),
   clearCanvasSelection: () =>
-    set({ selectedTable: null, selectedTableIds: [], selectedGroup: null }),
+    set({ selectedTable: null, selectedTableIds: [], selectedGroup: null, focusedFieldMapping: null }),
 
   hiddenLayers: new Set<string>(),
   toggleLayer: (id) =>
@@ -84,7 +98,6 @@ export const useInteraction = create<InteractionState>((set) => ({
       const next = !s.lineageMode;
       return {
         lineageMode: next,
-        lineageVisible: next ? true : s.lineageVisible,
         relationsVisible: next ? false : s.relationsVisible,
       };
     }),
@@ -96,4 +109,23 @@ export const useInteraction = create<InteractionState>((set) => ({
   toggleFieldLineageVisible: () => set((s) => ({ fieldLineageVisible: !s.fieldLineageVisible })),
   focusedFieldMapping: null,
   setFocusedFieldMapping: (m) => set({ focusedFieldMapping: m }),
+  fieldMappingFocusNonce: 0,
+  focusFieldMapping: (m) =>
+    set((s) => ({
+      focusedFieldMapping: m,
+      fieldLineageVisible: true,
+      fieldMappingFocusNonce: s.fieldMappingFocusNonce + 1,
+    })),
+  selectFieldLineageMapping: (m) =>
+    set((s) => ({
+      selectedTable: m.targetTable,
+      selectedTableIds: [m.targetTable],
+      selectedGroup: null,
+      focusedFieldMapping: m,
+      fieldLineageVisible: true,
+      fieldMappingFocusNonce: s.fieldMappingFocusNonce + 1,
+      mappingPanelOpen: true,
+    })),
+  mappingPanelOpen: true,
+  toggleMappingPanel: () => set((s) => ({ mappingPanelOpen: !s.mappingPanelOpen })),
 }));
