@@ -69,7 +69,7 @@ Blocos `Records` preservados; painel **Dados (amostra)** filtra por tabela/grupo
 ```
 data/
 ├─ input/         # seus .sql locais (não versionados)
-examples/input/   # demo_lakehouse.sql + README (copiar para data/input/)
+examples/input/   # demo_lakehouse.sql, demo_lakehouse_complex.sql + README (copiar para data/input/)
 ├─ output/        # DDL, dbt, erwin, Mermaid, PNG
 ├─ project.dbml   # fonte de verdade do modelo
 └─ canvas.json    # posições, cores, grupos colapsados

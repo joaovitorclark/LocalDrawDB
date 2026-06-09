@@ -220,6 +220,7 @@ export function Canvas(props: Props) {
             };
           })
         : [];
+      const tableById = new Map(parsed.tables.map((t) => [t.id, t] as const));
       const linEdges: Edge[] = showLineage
         ? lineage.map((l) => {
             const id = `lin:${l.source}->${l.target}`;
@@ -228,20 +229,20 @@ export function Canvas(props: Props) {
               id, source: l.source, target: l.target, type: 'lineage',
               data: { onRemove: () => onRemoveLineage(l.source, l.target) },
             };
-            if (lineageMode) {
-              if (prior?.sourceHandle && prior?.targetHandle) {
-                edge.sourceHandle = prior.sourceHandle;
-                edge.targetHandle = prior.targetHandle;
-              } else {
-                const sp = positions[l.source];
-                const tp = positions[l.target];
-                const handles =
-                  sp && tp
-                    ? pickLineageHandles(sp, tp)
-                    : { sourceHandle: DEFAULT_LINEAGE_SOURCE, targetHandle: DEFAULT_LINEAGE_TARGET };
-                edge.sourceHandle = handles.sourceHandle;
-                edge.targetHandle = handles.targetHandle;
-              }
+            if (prior?.sourceHandle && prior?.targetHandle && isLineageHandle(prior.sourceHandle)) {
+              edge.sourceHandle = prior.sourceHandle;
+              edge.targetHandle = prior.targetHandle;
+            } else {
+              const sp = positions[l.source];
+              const tp = positions[l.target];
+              const srcTable = tableById.get(l.source);
+              const tgtTable = tableById.get(l.target);
+              const handles =
+                sp && tp
+                  ? pickLineageHandles(sp, tp, srcTable, tgtTable)
+                  : { sourceHandle: DEFAULT_LINEAGE_SOURCE, targetHandle: DEFAULT_LINEAGE_TARGET };
+              edge.sourceHandle = handles.sourceHandle;
+              edge.targetHandle = handles.targetHandle;
             }
             return edge;
           })
@@ -280,7 +281,7 @@ export function Canvas(props: Props) {
       return [...relEdges, ...linEdges, ...fieldEdges];
     });
   }, [
-    parsed.refs, lineage, lineageFields, relationsVisible, showLineage, fieldLineageVisible,
+    parsed.refs, parsed.tables, lineage, lineageFields, relationsVisible, showLineage, fieldLineageVisible,
     focusTables, focusedFieldMapping, positions, setEdges, onRemoveRef, onRemoveLineage,
     onRemoveFieldLineage,
   ]);
@@ -345,7 +346,11 @@ export function Canvas(props: Props) {
           : (() => {
               const sp = positions[c.source];
               const tp = positions[c.target];
-              return sp && tp ? pickLineageHandles(sp, tp).sourceHandle : DEFAULT_LINEAGE_SOURCE;
+              const srcTable = parsed.tables.find((t) => t.id === c.source);
+              const tgtTable = parsed.tables.find((t) => t.id === c.target);
+              return sp && tp
+                ? pickLineageHandles(sp, tp, srcTable, tgtTable).sourceHandle
+                : DEFAULT_LINEAGE_SOURCE;
             })();
       const targetHandle =
         c.targetHandle && isLineageHandle(c.targetHandle)
@@ -353,7 +358,11 @@ export function Canvas(props: Props) {
           : (() => {
               const sp = positions[c.source];
               const tp = positions[c.target];
-              return sp && tp ? pickLineageHandles(sp, tp).targetHandle : DEFAULT_LINEAGE_TARGET;
+              const srcTable = parsed.tables.find((t) => t.id === c.source);
+              const tgtTable = parsed.tables.find((t) => t.id === c.target);
+              return sp && tp
+                ? pickLineageHandles(sp, tp, srcTable, tgtTable).targetHandle
+                : DEFAULT_LINEAGE_TARGET;
             })();
       setEdges((prev) => {
         const rest = prev.filter((e) => e.id !== id);
@@ -373,7 +382,7 @@ export function Canvas(props: Props) {
       return;
     }
     onCreateRef(c.source, stripHandle(c.sourceHandle), c.target, stripHandle(c.targetHandle));
-  }, [lineageMode, onCreateLineage, onCreateRef, onRemoveLineage, positions, setEdges]);
+  }, [lineageMode, onCreateLineage, onCreateRef, onRemoveLineage, parsed.tables, positions, setEdges]);
 
   // Mover grupo inteiro: aplica o delta às tabelas-membro.
   const groupDrag = useRef<{ name: string; last: { x: number; y: number } } | null>(null);

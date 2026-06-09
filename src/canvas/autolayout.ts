@@ -452,6 +452,267 @@ export function resolveOverlaps(
   return pos;
 }
 
+/** Ordem de coluna para layout de linhagem (esquerda → direita = fluxo ETL). */
+const LINEAGE_LAYER_RANK: Record<string, number> = {
+  bronze: 0,
+  raw: 0,
+  landing: 0,
+  ingestao: 0,
+  staging: 5,
+  prata: 10,
+  silver: 10,
+  ouro: 20,
+  gold: 20,
+};
+
+function lineageLayerRank(layer?: string): number {
+  if (!layer) return 900;
+  const key = layer.toLowerCase().trim();
+  return LINEAGE_LAYER_RANK[key] ?? 900;
+}
+
+function tableColumnRank(
+  id: string,
+  tableById: Map<string, TableView>,
+  layerMap: Record<string, string>,
+  edges: { source: string; target: string }[],
+  ids: Set<string>,
+  memo: Map<string, number>,
+): number {
+  if (memo.has(id)) return memo.get(id)!;
+  memo.set(id, 900);
+
+  const t = tableById.get(id);
+  if (t) {
+    const fromLayer = lineageLayerRank(layerForTable(t, layerMap));
+    if (fromLayer < 900) {
+      memo.set(id, fromLayer);
+      return fromLayer;
+    }
+  }
+
+  const srcs = edges.filter((e) => e.target === id).map((e) => e.source).filter((s) => ids.has(s));
+  if (srcs.length) {
+    const col = Math.max(...srcs.map((s) => tableColumnRank(s, tableById, layerMap, edges, ids, memo))) + 1;
+    memo.set(id, col);
+    return col;
+  }
+
+  const tgts = edges.filter((e) => e.source === id).map((e) => e.target).filter((t) => ids.has(t));
+  if (tgts.length) {
+    const col = Math.max(0, Math.min(...tgts.map((t) => tableColumnRank(t, tableById, layerMap, edges, ids, memo))) - 1);
+    memo.set(id, col);
+    return col;
+  }
+
+  memo.set(id, 900);
+  return 900;
+}
+
+function lineageTableArea(t: TableView, metrics: NodeMetricsOpts): number {
+  return nodeWidth(t, metrics) * nodeHeight(t, metrics);
+}
+
+const LINEAGE_MARGIN = 28;
+const LINEAGE_BAND_GAP = 180;
+const LINEAGE_GROUP_GAP = 64;
+/** Padding interno da caixa TableGroup no canvas (useCanvasNodes groupNodes). */
+const LINEAGE_GROUP_PAD = 24;
+const LINEAGE_GROUP_LABEL = 18;
+
+function shiftPositions(local: Positions, dx: number, dy: number): Positions {
+  const out: Positions = {};
+  for (const [id, p] of Object.entries(local)) {
+    out[id] = { x: p.x + dx, y: p.y + dy };
+  }
+  return out;
+}
+
+function boundsOf(positions: Positions, tables: TableView[], metrics: NodeMetricsOpts): Rect | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const t of tables) {
+    const p = positions[t.id];
+    if (!p) continue;
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + nodeWidth(t, metrics));
+    maxY = Math.max(maxY, p.y + nodeHeight(t, metrics));
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { id: '', x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+function groupSortWeight(tables: TableView[], metrics: NodeMetricsOpts): number {
+  return tables.reduce((sum, t) => sum + lineageTableArea(t, metrics), 0);
+}
+
+/** Inverso do pack wide normal: maiores primeiro, preenchimento horizontal (linha a linha). */
+function sortTablesLargestFirst(tables: TableView[], metrics: NodeMetricsOpts): TableView[] {
+  return [...tables].sort((a, b) => {
+    const sa = lineageTableArea(a, metrics);
+    const sb = lineageTableArea(b, metrics);
+    if (sa !== sb) return sb - sa;
+    const ha = nodeHeight(a, metrics);
+    const hb = nodeHeight(b, metrics);
+    if (ha !== hb) return hb - ha;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function packLineageLayerHorizontal(
+  tables: TableView[],
+  metrics: NodeMetricsOpts,
+  originX: number,
+  originY: number,
+  margin: number,
+): { positions: Positions; width: number; height: number } {
+  const sorted = sortTablesLargestFirst(tables, metrics);
+  const positions: Positions = {};
+  if (!sorted.length) return { positions, width: 0, height: 0 };
+
+  const cols = gridCols(sorted.length, 'wide');
+  const rows = Math.ceil(sorted.length / cols);
+  const colWidths = new Array<number>(cols).fill(0);
+  const rowHeights = new Array<number>(rows).fill(0);
+
+  sorted.forEach((t, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    colWidths[col] = Math.max(colWidths[col], nodeWidth(t, metrics) + margin);
+    rowHeights[row] = Math.max(rowHeights[row], nodeHeight(t, metrics) + margin);
+  });
+
+  const colX: number[] = [];
+  let xAcc = originX;
+  for (let c = 0; c < cols; c++) {
+    colX[c] = xAcc;
+    xAcc += colWidths[c];
+  }
+  const rowY: number[] = [];
+  let yAcc = originY;
+  for (let r = 0; r < rows; r++) {
+    rowY[r] = yAcc;
+    yAcc += rowHeights[r];
+  }
+
+  let maxX = originX;
+  let maxY = originY;
+  sorted.forEach((t, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    positions[t.id] = { x: colX[col], y: rowY[row] };
+    maxX = Math.max(maxX, colX[col] + nodeWidth(t, metrics));
+    maxY = Math.max(maxY, rowY[row] + nodeHeight(t, metrics));
+  });
+
+  return { positions, width: maxX - originX + margin, height: maxY - originY + margin };
+}
+
+/** Layout interno de um TableGroup (ou tabelas soltas): maiores à esquerda; dagre se houver linhagem interna. */
+function layoutLineageGroupInternal(
+  tables: TableView[],
+  parsed: ParseResult,
+  metrics: NodeMetricsOpts,
+  margin: number,
+): Positions {
+  const ids = new Set(tables.map((t) => t.id));
+  const internalLineage = parsed.lineage.filter(
+    (e) => ids.has(e.target) && e.sources.some((s) => ids.has(s)),
+  );
+  if (internalLineage.length > 0 && tables.length >= 2) {
+    return layoutSubset(tables, parsed, metrics, true, 'default');
+  }
+  return packLineageLayerHorizontal(tables, metrics, 0, 0, margin).positions;
+}
+
+function countAllOverlaps(positions: Positions, tables: TableView[], metrics: NodeMetricsOpts, margin: number): number {
+  return countOverlaps(toRects(positions, tables, metrics), margin);
+}
+
+/**
+ * Layout para modo linhagem: faixas por camada (bronze→prata→ouro), TableGroups compactos
+ * empilhados na faixa, maiores à esquerda dentro de cada grupo. Usa altura real das tabelas.
+ */
+export function autolayoutLineagePositions(parsed: ParseResult): Positions {
+  const metrics = layoutMetrics(false);
+  const layerMap = tableLayerMap(parsed.layerGroups);
+  const tables = parsed.tables;
+  if (!tables.length) return {};
+
+  const tableById = new Map(tables.map((t) => [t.id, t] as const));
+  const ids = new Set(tables.map((t) => t.id));
+  const edges: { source: string; target: string }[] = [];
+  for (const entry of parsed.lineage) {
+    for (const src of entry.sources) {
+      if (ids.has(src) && ids.has(entry.target)) edges.push({ source: src, target: entry.target });
+    }
+  }
+
+  const memo = new Map<string, number>();
+  const columnOf = new Map<string, number>();
+  for (const t of tables) {
+    columnOf.set(t.id, tableColumnRank(t.id, tableById, layerMap, edges, ids, memo));
+  }
+
+  const byBand = new Map<number, TableView[]>();
+  for (const t of tables) {
+    const col = columnOf.get(t.id) ?? 900;
+    byBand.set(col, [...(byBand.get(col) ?? []), t]);
+  }
+
+  const margin = LINEAGE_MARGIN;
+  const positions: Positions = {};
+  let bandX = 40;
+  const sortedBands = [...byBand.keys()].sort((a, b) => a - b);
+
+  for (const band of sortedBands) {
+    const bandTables = byBand.get(band)!;
+    const byGroup = new Map<string, TableView[]>();
+    for (const t of bandTables) {
+      const g = t.group?.trim() || '__solo__';
+      byGroup.set(g, [...(byGroup.get(g) ?? []), t]);
+    }
+
+    const groupKeys = [...byGroup.keys()].sort((a, b) => {
+      const wa = groupSortWeight(byGroup.get(a)!, metrics);
+      const wb = groupSortWeight(byGroup.get(b)!, metrics);
+      if (wa !== wb) return wb - wa;
+      return a.localeCompare(b);
+    });
+
+    let bandY = 40;
+    let bandMaxX = bandX;
+
+    for (const gk of groupKeys) {
+      const gTables = byGroup.get(gk)!;
+      let local = layoutLineageGroupInternal(gTables, parsed, metrics, margin);
+      local = resolveOverlaps(local, gTables, parsed, metrics, margin);
+
+      const innerOriginX = bandX + LINEAGE_GROUP_PAD;
+      const innerOriginY = bandY + LINEAGE_GROUP_PAD + LINEAGE_GROUP_LABEL;
+      const shifted = shiftPositions(local, innerOriginX, innerOriginY);
+      Object.assign(positions, shifted);
+
+      const box = boundsOf(shifted, gTables, metrics);
+      if (box) {
+        bandMaxX = Math.max(bandMaxX, box.x + box.w + LINEAGE_GROUP_PAD);
+        bandY = box.y + box.h + LINEAGE_GROUP_PAD + LINEAGE_GROUP_GAP;
+      }
+    }
+
+    bandX = bandMaxX + LINEAGE_BAND_GAP;
+  }
+
+  let out = resolveOverlaps(positions, tables, parsed, metrics, margin);
+  if (countAllOverlaps(out, tables, metrics, margin) > 0) {
+    out = resolveOverlaps(out, tables, parsed, metrics, margin + 16);
+  }
+  return out;
+}
+
 /** Autolayout por cluster (TableGroup → Layer/schema → default), sem sobreposição. */
 export function autolayoutPositions(parsed: ParseResult, compact = false): Positions {
   const metrics = layoutMetrics(compact);

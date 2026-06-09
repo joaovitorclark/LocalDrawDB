@@ -576,6 +576,7 @@ body {
   z-index: 10;
 }
 .table-node-shell--lineage:hover .lineage-port-handle,
+.table-node-shell--lineage-ports:hover .lineage-port-handle,
 .canvas--lineage-connecting .lineage-port-handle,
 .lineage-port-handle.connectingfrom,
 .lineage-port-handle.connectingto,
@@ -586,6 +587,9 @@ body {
   transform: scale(1.25);
   background: #ede9fe !important;
   cursor: crosshair;
+}
+.table-node-shell--lineage-ports .lineage-port-handle {
+  opacity: 0.4;
 }
 .canvas--lineage-mode .react-flow__pane {
   cursor: default;
@@ -733,6 +737,16 @@ body {
 }
 .layers-panel__autolayout:hover {
   background: var(--brand-green);
+  color: #fff;
+}
+.layers-panel__autolayout--lineage {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+.layers-panel__autolayout--lineage:hover {
+  background: #7c3aed;
+  border-color: #7c3aed;
   color: #fff;
 }
 .layers-panel.is-collapsed {
@@ -1086,13 +1100,13 @@ body {
   filter: drop-shadow(0 0 3px #8b5cf6);
 }
 .react-flow__edge.edge--field-lineage.edge--highlight path {
-  filter: drop-shadow(0 0 2px #0d9488);
+  filter: drop-shadow(0 0 2px #8b5cf6);
 }
 .col-handle--field-lin {
   width: 6px !important;
   height: 6px !important;
-  background: #5eead4 !important;
-  border: 1px solid #0d9488 !important;
+  background: #ddd6fe !important;
+  border: 1px solid #7c3aed !important;
 }
 
 /* Painel mapeamento campo-a-campo (v9) */
@@ -1155,11 +1169,11 @@ body {
   font-size: 10px;
 }
 .field-lineage-panel__row-btn:hover {
-  background: #ecfdf5;
-  border-color: #5eead4;
+  background: #f5f3ff;
+  border-color: #c4b5fd;
 }
 .field-lineage-panel__src { color: #64748b; }
-.field-lineage-panel__arrow { color: #0d9488; font-weight: 700; }
+.field-lineage-panel__arrow { color: #7c3aed; font-weight: 700; }
 .field-lineage-panel__tgt { font-weight: 600; }
 .field-lineage-panel__meta {
   width: 100%;
@@ -1199,7 +1213,7 @@ body {
   padding: 3px 5px;
 }
 .field-lineage-panel__add-btn {
-  background: #0d9488;
+  background: #7c3aed;
   color: #fff;
   border: none;
   border-radius: 4px;

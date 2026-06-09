@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseDbml } from '../../dsl/parse';
-import { autolayoutPositions } from '../autolayout';
+import { autolayoutLineagePositions, autolayoutPositions } from '../autolayout';
+import { pickLineageHandles } from '../lineageHandles';
 import { nodeHeight, nodeWidth } from '../nodeMetrics';
 
 const MARGIN = 16;
@@ -245,5 +246,169 @@ ${largeCols}
     const t0 = performance.now();
     autolayoutPositions(parsed);
     expect(performance.now() - t0).toBeLessThan(500);
+  });
+});
+
+describe('autolayoutLineagePositions', () => {
+  const metrics = { compact: false, layout: true as const };
+
+  it('coloca camadas bronze → prata → ouro da esquerda para a direita', () => {
+    const parsed = parseDbml(`
+LayerGroup bronze {
+  raw.a
+  raw.b
+}
+LayerGroup prata {
+  silver.c
+}
+LayerGroup ouro {
+  gold.d
+}
+Table raw.a {
+  id bigint [pk]
+}
+Table raw.b {
+  id bigint [pk]
+}
+Table silver.c {
+  id bigint [pk]
+}
+Table gold.d {
+  id bigint [pk]
+}
+Lineage {
+  silver.c < raw.a
+  gold.d < silver.c
+}
+`);
+    const pos = autolayoutLineagePositions(parsed);
+    expect(pos['raw.a'].x).toBeLessThan(pos['silver.c'].x);
+    expect(pos['silver.c'].x).toBeLessThan(pos['gold.d'].x);
+  });
+
+  it('dentro da camada: maiores à esquerda e alvo L1 à direita da origem', () => {
+    const parsed = parseDbml(`
+Table bronze.src {
+  id bigint [pk]
+}
+Table silver.mid {
+  id bigint [pk]
+}
+Table gold.dst {
+  id bigint [pk]
+}
+Lineage {
+  silver.mid < bronze.src
+  gold.dst < silver.mid
+}
+`);
+    const pos = autolayoutLineagePositions(parsed);
+    expect(pos['bronze.src'].x).toBeLessThan(pos['silver.mid'].x);
+    expect(pos['silver.mid'].x).toBeLessThan(pos['gold.dst'].x);
+    const src = parsed.tables.find((t) => t.id === 'bronze.src')!;
+    const mid = parsed.tables.find((t) => t.id === 'silver.mid')!;
+    const handles = pickLineageHandles(pos['bronze.src'], pos['silver.mid'], src, mid);
+    expect(handles.sourceHandle).toBe('lin-r-s');
+    expect(handles.targetHandle).toBe('lin-l-t');
+  });
+
+  it('maiores primeiro à esquerda na mesma camada (inverso do compacto normal)', () => {
+    const smallCols = Array.from({ length: 3 }, (_, i) => `  c${i} string`).join('\n');
+    const largeCols = Array.from({ length: 40 }, (_, i) => `  col_${i} string`).join('\n');
+    const parsed = parseDbml(`
+Table bronze.small_a {
+  id bigint [pk]
+${smallCols}
+}
+Table bronze.small_b {
+  id bigint [pk]
+${smallCols}
+}
+Table bronze.huge {
+  id bigint [pk]
+${largeCols}
+}
+`);
+    const pos = autolayoutLineagePositions(parsed);
+    const huge = pos['bronze.huge'];
+    const smallA = pos['bronze.small_a'];
+    const smallB = pos['bronze.small_b'];
+    expect(huge.x).toBeLessThan(smallA.x);
+    expect(huge.x).toBeLessThan(smallB.x);
+    expect(huge.y).toBe(smallA.y);
+  });
+
+  it('nao sobrepoe tabelas altas dentro de TableGroup', () => {
+    const largeCols = Array.from({ length: 35 }, (_, i) => `  col_${i} string`).join('\n');
+    const parsed = parseDbml(`
+TableGroup ingestao_erp {
+  raw.erp_orders
+  raw.erp_order_lines
+}
+Table raw.erp_orders {
+  id bigint [pk]
+${largeCols}
+}
+Table raw.erp_order_lines {
+  line_id bigint [pk]
+  order_id bigint
+  qty int
+}
+Lineage {
+  raw.erp_order_lines < raw.erp_orders
+}
+`);
+    const pos = autolayoutLineagePositions(parsed);
+    const a = parsed.tables[0];
+    const b = parsed.tables[1];
+    const pa = pos[a.id];
+    const pb = pos[b.id];
+    expect(pa).toBeDefined();
+    expect(pb).toBeDefined();
+    const overlap = rectsOverlap(
+      pa.x,
+      pa.y,
+      nodeWidth(a, metrics),
+      nodeHeight(a, metrics),
+      pb.x,
+      pb.y,
+      nodeWidth(b, metrics),
+      nodeHeight(b, metrics),
+    );
+    expect(overlap).toBe(false);
+  });
+
+  it('nao sobrepoe modelo com varias camadas e grupos', () => {
+    const parsed = parseDbml(`
+${Array.from({ length: 8 }, (_, i) => `Table bronze.t${i} {\n  id bigint [pk]\n  c string\n}`).join('\n')}
+${Array.from({ length: 6 }, (_, i) => `Table silver.s${i} {\n  id bigint [pk]\n  c string\n}`).join('\n')}
+${Array.from({ length: 4 }, (_, i) => `Table gold.g${i} {\n  id bigint [pk]\n}`).join('\n')}
+Lineage {
+  silver.s0 < bronze.t0
+  silver.s1 < bronze.t1
+  gold.g0 < silver.s0
+}
+`);
+    const pos = autolayoutLineagePositions(parsed);
+    for (let i = 0; i < parsed.tables.length; i++) {
+      for (let j = i + 1; j < parsed.tables.length; j++) {
+        const a = parsed.tables[i];
+        const b = parsed.tables[j];
+        const pa = pos[a.id];
+        const pb = pos[b.id];
+        if (!pa || !pb) continue;
+        const overlap = rectsOverlap(
+          pa.x,
+          pa.y,
+          nodeWidth(a, metrics),
+          nodeHeight(a, metrics),
+          pb.x,
+          pb.y,
+          nodeWidth(b, metrics),
+          nodeHeight(b, metrics),
+        );
+        expect(overlap, `overlap ${a.id} vs ${b.id}`).toBe(false);
+      }
+    }
   });
 });

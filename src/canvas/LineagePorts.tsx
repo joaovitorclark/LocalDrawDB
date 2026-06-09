@@ -1,7 +1,7 @@
 import { Handle } from 'reactflow';
 import { LINEAGE_PORTS } from './lineageHandles';
 
-/** Pontos de conexão nas 4 bordas do cartão compacto (estilo draw.io). */
+/** Pontos de conexão no meio das 4 bordas do cartão (L1). */
 export function LineagePorts() {
   return (
     <>
