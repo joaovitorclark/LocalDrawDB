@@ -12,6 +12,7 @@ export function TableNode({ data }: { data: TableView }) {
   const actions = useCanvasActions();
   const selected = useInteraction((s) => s.selectedColumn);
   const lineageMode = useInteraction((s) => s.lineageMode);
+  const fieldLineageVisible = useInteraction((s) => s.fieldLineageVisible);
   const [palette, setPalette] = useState(false);
   const [infoRect, setInfoRect] = useState<DOMRect | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -43,11 +44,6 @@ export function TableNode({ data }: { data: TableView }) {
             {data.schema && <span className="table-node__schema">{data.schema}.</span>}
             {data.name}
           </span>
-          {lineageMode && (
-            <span className="table-node__col-count" title="Colunas ocultas no modo linhagem">
-              {data.columns.length} col.
-            </span>
-          )}
           {meta.has && (
             <span
               className="table-node__info"
@@ -99,9 +95,7 @@ export function TableNode({ data }: { data: TableView }) {
           )}
         </div>
 
-        {!lineageMode && (
-          <>
-            <div className="table-node__cols">
+        <div className="table-node__cols">
               {data.columns.map((c) => {
                 const isSel = selected?.table === data.id && selected?.column === c.name;
                 return (
@@ -110,10 +104,22 @@ export function TableNode({ data }: { data: TableView }) {
                     className={`col-row ${c.pk ? 'is-pk' : ''} ${isSel ? 'is-selected' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (e.altKey && actions.onGoToColumn) {
+                        actions.onGoToColumn(data.id, c.name);
+                        return;
+                      }
                       actions.onSelectColumn(data.id, c.name);
                     }}
                   >
                     <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
+                    {fieldLineageVisible && (
+                      <Handle
+                        type="target"
+                        position={Position.Left}
+                        id={`fl:t:${c.name}`}
+                        className="col-handle col-handle--field-lin nodrag nopan"
+                      />
+                    )}
                     {editing === c.name ? (
                       <input
                         className="col-edit"
@@ -136,21 +142,27 @@ export function TableNode({ data }: { data: TableView }) {
                     )}
                     <span className="col-type">{c.type}</span>
                     <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" />
+                    {fieldLineageVisible && (
+                      <Handle
+                        type="source"
+                        position={Position.Right}
+                        id={`fl:s:${c.name}`}
+                        className="col-handle col-handle--field-lin nodrag nopan"
+                      />
+                    )}
                   </div>
                 );
               })}
             </div>
-            <button
-              className="col-add"
-              onClick={(e) => {
-                e.stopPropagation();
-                actions.onAddColumn(data.id);
-              }}
-            >
-              + coluna
-            </button>
-          </>
-        )}
+        <button
+          className="col-add"
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.onAddColumn(data.id);
+          }}
+        >
+          + coluna
+        </button>
       </div>
     </div>
   );

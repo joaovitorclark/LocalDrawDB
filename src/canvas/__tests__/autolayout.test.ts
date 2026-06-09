@@ -177,6 +177,49 @@ ${Array.from(
     assertNoOverlaps(parsed, true);
   });
 
+  it('bronze wide: menores empilhadas à esquerda, gigante em coluna à direita', () => {
+    const smallCols = Array.from({ length: 3 }, (_, i) => `  c${i} string`).join('\n');
+    const largeCols = Array.from({ length: 40 }, (_, i) => `  col_${i} string`).join('\n');
+    const parsed = parseDbml(`
+Table bronze.small_a {
+  id bigint [pk]
+${smallCols}
+}
+Table bronze.small_b {
+  id bigint [pk]
+${smallCols}
+}
+Table bronze.huge {
+  id bigint [pk]
+${largeCols}
+}
+`);
+    const pos = autolayoutPositions(parsed, true);
+    const smallA = pos['bronze.small_a'];
+    const smallB = pos['bronze.small_b'];
+    const huge = pos['bronze.huge'];
+    expect(smallA.x).toBe(smallB.x);
+    expect(smallA.y).toBeLessThan(smallB.y);
+    expect(huge.x).toBeGreaterThan(smallA.x);
+    expect(huge.y).toBe(smallA.y);
+    assertNoOverlaps(parsed, true);
+  });
+
+  it('bronze wide: grade mais horizontal e compacta', () => {
+    const tables = Array.from(
+      { length: 11 },
+      (_, i) => `Table bronze.t${i} {\n  id bigint [pk]\n}`,
+    ).join('\n');
+    const parsed = parseDbml(tables);
+    const pos = autolayoutPositions(parsed, true);
+    const ys = parsed.tables.map((t) => pos[t.id].y);
+    const xs = parsed.tables.map((t) => pos[t.id].x);
+    const rowSpread = Math.max(...ys) - Math.min(...ys);
+    const colSpread = Math.max(...xs) - Math.min(...xs);
+    expect(colSpread).toBeGreaterThan(rowSpread);
+    assertNoOverlaps(parsed, true);
+  });
+
   it('nao sobrepoe muitas bronze com nomes longos (modo linhagem)', () => {
     const tables = Array.from(
       { length: 11 },

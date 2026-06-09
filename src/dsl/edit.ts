@@ -133,6 +133,55 @@ export function renameColumn(src: string, table: string, oldName: string, newNam
   );
 }
 
+/** Renomeia coluna na definição e propaga refs, LineageFields, Records e indexes. */
+export function renameColumnAllRefs(
+  src: string,
+  table: string,
+  oldName: string,
+  newName: string,
+): string {
+  const old = stripQuotes(oldName);
+  const neu = stripQuotes(newName);
+  if (!old || !neu || old === neu) return src;
+
+  let out = renameColumn(src, table, old, neu);
+  const t = stripQuotes(table);
+  const oldQ = `${t}.${old}`;
+  const newQ = `${t}.${neu}`;
+  const qRe = new RegExp(`(?<![\\w.])${escapeRegex(oldQ)}(?![\\w])`, 'g');
+  out = out.replace(qRe, newQ);
+
+  out = mutateTableBlock(out, table, (block) => {
+    let inIndexes = false;
+    return block
+      .split('\n')
+      .map((line) => {
+        if (/^\s*indexes\s*\{/i.test(line)) inIndexes = true;
+        if (inIndexes && line.trim() === '}') inIndexes = false;
+        if (inIndexes) return line.replace(new RegExp(`\\b${escapeRegex(old)}\\b`, 'g'), neu);
+        return line;
+      })
+      .join('\n');
+  });
+
+  const blocks = splitDbmlBlocks(out);
+  out = blocks
+    .map((b) => {
+      if (b.type === 'records') {
+        const tbl = /^records\s+("?[^"\s(]+"?)\s*\(([^)]*)\)/i.exec(b.text);
+        if (tbl && stripQuotes(tbl[1]) === t) {
+          const cols = tbl[2].split(',').map((c) => c.trim());
+          const updated = cols.map((c) => (stripQuotes(c) === old ? neu : c)).join(', ');
+          return b.text.replace(tbl[2], updated);
+        }
+      }
+      return b.text;
+    })
+    .join('\n');
+
+  return out;
+}
+
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -254,6 +303,85 @@ export function removeLineageEntry(src: string, source: string, target: string):
     return src.replace(linBlock.text, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
   }
   return src.replace(linBlock.text, updated);
+}
+
+// ---- LineageFields (mapeamento coluna→coluna) ----
+
+function fieldLineageLine(
+  targetTable: string,
+  targetColumn: string,
+  sourceTable: string,
+  sourceColumn: string,
+  meta?: { note?: string; ref?: string },
+): string {
+  const tq = `${targetTable}.${targetColumn}`;
+  const sq = `${sourceTable}.${sourceColumn}`;
+  const parts: string[] = [];
+  if (meta?.note) parts.push(`note: '${meta.note.replace(/'/g, "\\'")}'`);
+  if (meta?.ref) parts.push(`ref: '${meta.ref.replace(/'/g, "\\'")}'`);
+  const bracket = parts.length ? ` [${parts.join(', ')}]` : '';
+  return `  ${tq} < ${sq}${bracket}`;
+}
+
+/** Adiciona mapeamento campo→campo ao bloco LineageFields. */
+export function addFieldLineageEntry(
+  src: string,
+  sourceTable: string,
+  sourceColumn: string,
+  targetTable: string,
+  targetColumn: string,
+  meta?: { note?: string; ref?: string },
+): string {
+  const line = fieldLineageLine(targetTable, targetColumn, sourceTable, sourceColumn, meta);
+  const blocks = splitDbmlBlocks(src);
+  const block = blocks.find((b) => b.type === 'lineageFields');
+  if (block) {
+    const needle = `${targetTable}.${targetColumn} < ${sourceTable}.${sourceColumn}`;
+    if (block.text.includes(needle)) return src;
+    const close = block.text.lastIndexOf('}');
+    if (close >= 0) {
+      const newText = block.text.slice(0, close) + `${line}\n` + block.text.slice(close);
+      return src.replace(block.text, newText);
+    }
+  }
+  return `${src.replace(/\n+$/, '')}\n\nLineageFields {\n${line}\n}\n`;
+}
+
+/** Remove mapeamento campo→campo. */
+export function removeFieldLineageEntry(
+  src: string,
+  sourceTable: string,
+  sourceColumn: string,
+  targetTable: string,
+  targetColumn: string,
+): string {
+  const blocks = splitDbmlBlocks(src);
+  const block = blocks.find((b) => b.type === 'lineageFields');
+  if (!block) return src;
+  const prefix = `${targetTable}.${targetColumn} < ${sourceTable}.${sourceColumn}`;
+  const updated = block.text
+    .split('\n')
+    .filter((l) => !l.trim().startsWith(prefix) && !l.includes(prefix))
+    .join('\n');
+  if (!/\S/.test(updated.replace(/LineageFields\s*\{/i, '').replace('}', ''))) {
+    return src.replace(block.text, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+  return src.replace(block.text, updated);
+}
+
+/** Atualiza note/ref de um mapeamento existente. */
+export function updateFieldLineageMeta(
+  src: string,
+  sourceTable: string,
+  sourceColumn: string,
+  targetTable: string,
+  targetColumn: string,
+  meta: { note?: string; ref?: string },
+): string {
+  const without = removeFieldLineageEntry(src, sourceTable, sourceColumn, targetTable, targetColumn);
+  return addFieldLineageEntry(
+    without, sourceTable, sourceColumn, targetTable, targetColumn, meta,
+  );
 }
 
 /** Remove o(s) bloco(s) `Ref` que casam o par (qualquer direção). Não toca nos outros. */

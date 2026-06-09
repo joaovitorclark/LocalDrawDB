@@ -1,30 +1,51 @@
-import { useCallback, useRef } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { sql } from '@codemirror/lang-sql';
 import { EditorView } from '@codemirror/view';
 import { Outline } from './Outline';
 import { dbmlFoldExtension } from './dbmlFold';
+import { lineOfColumn } from '../dsl/lineLocate';
+
+export type EditorHandle = {
+  goToLine: (line: number) => void;
+  goToColumn: (table: string, column: string) => void;
+};
 
 type Props = {
   value: string;
   onChange: (v: string) => void;
   error?: string;
+  errorLine?: number;
   onFocusTable?: (tableId: string) => void;
+  onGoToError?: () => void;
 };
 
-export function Editor({ value, onChange, error, onFocusTable }: Props) {
+export const Editor = forwardRef<EditorHandle, Props>(function Editor(
+  { value, onChange, error, errorLine, onFocusTable, onGoToError },
+  ref,
+) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
 
   const goToLine = useCallback((line: number) => {
     const view = cmRef.current?.view;
     if (!view) return;
-    const lineInfo = view.state.doc.line(Math.min(line + 1, view.state.doc.lines));
+    const lineInfo = view.state.doc.line(Math.min(Math.max(1, line + 1), view.state.doc.lines));
     view.dispatch({
       selection: { anchor: lineInfo.from },
       effects: EditorView.scrollIntoView(lineInfo.from, { y: 'start' }),
     });
     view.focus();
   }, []);
+
+  const goToColumn = useCallback(
+    (table: string, column: string) => {
+      const line = lineOfColumn(value, table, column);
+      if (line != null) goToLine(line);
+    },
+    [value, goToLine],
+  );
+
+  useImperativeHandle(ref, () => ({ goToLine, goToColumn }), [goToLine, goToColumn]);
 
   return (
     <div className="editor">
@@ -46,7 +67,19 @@ export function Editor({ value, onChange, error, onFocusTable }: Props) {
         }}
         placeholder={'Defina suas tabelas em DBML…\n\nTable schema.tabela {\n  id bigint [pk]\n  nome string\n}'}
       />
-      {error && <div className="editor__error">⚠ {error}</div>}
+      {error && (
+        <button
+          type="button"
+          className="editor__error"
+          onClick={() => {
+            if (errorLine != null) goToLine(errorLine);
+            onGoToError?.();
+          }}
+          title={errorLine != null ? 'Ir para linha do erro' : undefined}
+        >
+          ⚠ {error}
+        </button>
+      )}
     </div>
   );
-}
+});

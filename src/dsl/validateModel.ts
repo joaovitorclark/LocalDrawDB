@@ -1,15 +1,18 @@
+import { lineOfColumn, lineOfRef, lineOfTable } from './lineLocate';
 import type { ParseResult } from './parse';
 
 export type ModelIssue = {
   severity: 'error' | 'warn';
   message: string;
   tableId?: string;
+  /** Linha 0-based no editor. */
+  line?: number;
 };
 
 /** Valida refs, PKs e linhagem após o parse do DBML. */
-export function validateModel(parsed: ParseResult): ModelIssue[] {
+export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] {
   if (parsed.error) {
-    return [{ severity: 'error', message: parsed.error }];
+    return [{ severity: 'error', message: parsed.error, line: parsed.errorLine }];
   }
 
   const issues: ModelIssue[] = [];
@@ -26,6 +29,7 @@ export function validateModel(parsed: ParseResult): ModelIssue[] {
         severity: 'warn',
         message: `Tabela sem PK: ${t.id}`,
         tableId: t.id,
+        line: dbml ? lineOfTable(dbml, t.id) : undefined,
       });
     }
   }
@@ -42,6 +46,7 @@ export function validateModel(parsed: ParseResult): ModelIssue[] {
         severity: 'error',
         message: `Coluna "${r.fromCol}" não existe em ${r.source}`,
         tableId: r.source,
+        line: dbml ? lineOfRef(dbml, r.source, r.fromCol) : undefined,
       });
     }
     if (!tableIds.has(r.target)) {
@@ -55,6 +60,38 @@ export function validateModel(parsed: ParseResult): ModelIssue[] {
         severity: 'error',
         message: `Coluna "${r.toCol}" não existe em ${r.target}`,
         tableId: r.target,
+        line: dbml ? lineOfRef(dbml, r.target, r.toCol) : undefined,
+      });
+    }
+  }
+
+  for (const f of parsed.lineageFields ?? []) {
+    if (!tableIds.has(f.targetTable)) {
+      issues.push({
+        severity: 'error',
+        message: `Linhagem campo: tabela destino inexistente "${f.targetTable}"`,
+        tableId: f.targetTable,
+      });
+    } else if (!colsByTable.get(f.targetTable)?.has(f.targetColumn)) {
+      issues.push({
+        severity: 'error',
+        message: `Linhagem campo: coluna "${f.targetColumn}" não existe em ${f.targetTable}`,
+        tableId: f.targetTable,
+        line: dbml ? lineOfColumn(dbml, f.targetTable, f.targetColumn) : undefined,
+      });
+    }
+    if (!tableIds.has(f.sourceTable)) {
+      issues.push({
+        severity: 'error',
+        message: `Linhagem campo: tabela origem inexistente "${f.sourceTable}"`,
+        tableId: f.sourceTable,
+      });
+    } else if (!colsByTable.get(f.sourceTable)?.has(f.sourceColumn)) {
+      issues.push({
+        severity: 'error',
+        message: `Linhagem campo: coluna "${f.sourceColumn}" não existe em ${f.sourceTable}`,
+        tableId: f.sourceTable,
+        line: dbml ? lineOfColumn(dbml, f.sourceTable, f.sourceColumn) : undefined,
       });
     }
   }

@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Editor } from './editor/Editor';
+import { Editor, type EditorHandle } from './editor/Editor';
 import { Canvas } from './canvas/Canvas';
 import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from './dsl/parse';
 import { validateModel } from './dsl/validateModel';
 import { organize } from './dsl/organize';
 import { autolayoutPositions } from './canvas/autolayout';
 import { ProblemsPanel } from './canvas/ProblemsPanel';
-import { appendRef, removeRef, renameColumn, renameTable, addColumn, setTableLayer, addLayerGroup, addLineageEntry, removeLineageEntry } from './dsl/edit';
+import {
+  appendRef, removeRef, renameColumnAllRefs, renameTable, addColumn, setTableLayer, addLayerGroup,
+  addLineageEntry, removeLineageEntry, addFieldLineageEntry, removeFieldLineageEntry, updateFieldLineageMeta,
+} from './dsl/edit';
 import { RecordsPanel } from './records/RecordsPanel';
 import { ColumnPanel } from './canvas/ColumnPanel';
+import { FieldLineagePanel } from './canvas/FieldLineagePanel';
 import { CanvasActionsCtx, type CanvasActions } from './canvas/actions';
 import { LayersPanel } from './canvas/LayersPanel';
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
+import { detectRenames } from './dsl/renameDetect';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import * as api from './api';
 import type { LineageLink } from './api';
@@ -63,6 +68,9 @@ export default function App() {
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const loadedRef = useRef(false);
+  const prevDbmlRef = useRef('');
+  const editorRef = useRef<EditorHandle>(null);
+  const renameTimer = useRef<ReturnType<typeof setTimeout>>();
   const selectColumn = useInteraction((s) => s.selectColumn);
 
   // Histórico global (undo/redo) de snapshots {dbml, positions, colors}.
@@ -80,6 +88,7 @@ export default function App() {
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
         setDbml(dbml0);
+        prevDbmlRef.current = dbml0;
         setPositions(pos0);
         setColors(col0);
         setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
@@ -119,7 +128,9 @@ export default function App() {
 
   const applySnapshot = useCallback((s: Snapshot) => {
     clearTimeout(commitTimer.current);
+    clearTimeout(renameTimer.current);
     baselineRef.current = s;
+    prevDbmlRef.current = s.dbml;
     setDbml(s.dbml);
     setPositions(s.positions);
     setColors(s.colors);
@@ -193,7 +204,9 @@ export default function App() {
   const parsed = useMemo(() => parseDbml(dbml), [dbml]);
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
-  const [canvasModel, setCanvasModel] = useState<ParseResult>({ tables: [], refs: [], records: [], layerGroups: [], lineage: [] });
+  const [canvasModel, setCanvasModel] = useState<ParseResult>({
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [],
+  });
   useEffect(() => {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
@@ -201,13 +214,86 @@ export default function App() {
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
 
   const modelIssues = useMemo(() => {
-    const issues = validateModel(canvasModel);
+    const issues = validateModel(canvasModel, dbml);
+    const parseIssues = parsed.error
+      ? [{ severity: 'error' as const, message: parsed.error, line: parsed.errorLine }]
+      : [];
     const fromImport = importWarnings.map((message) => ({
       severity: 'error' as const,
       message,
     }));
-    return [...fromImport, ...issues];
-  }, [canvasModel, importWarnings]);
+    return [...parseIssues, ...fromImport, ...issues];
+  }, [canvasModel, dbml, parsed.error, parsed.errorLine, importWarnings]);
+
+  const migrateTableId = useCallback((oldId: string, newId: string) => {
+    setPositions((prev) => {
+      if (!prev[oldId]) return prev;
+      const next = { ...prev };
+      next[newId] = prev[oldId];
+      delete next[oldId];
+      return next;
+    });
+    setColors((prev) => {
+      if (!prev[oldId]) return prev;
+      const next = { ...prev };
+      next[newId] = prev[oldId];
+      delete next[oldId];
+      return next;
+    });
+    const st = useInteraction.getState();
+    if (st.selectedTable === oldId) st.selectTable(newId);
+    else if (st.selectedTableIds.includes(oldId)) {
+      st.setSelectedTableIds(st.selectedTableIds.map((id) => (id === oldId ? newId : id)));
+    }
+    if (st.focusedFieldMapping?.sourceTable === oldId || st.focusedFieldMapping?.targetTable === oldId) {
+      st.setFocusedFieldMapping(null);
+    }
+  }, []);
+
+  const handleDbmlChange = useCallback(
+    (next: string) => {
+      setDbml(next);
+      clearTimeout(renameTimer.current);
+      renameTimer.current = setTimeout(() => {
+        const prev = prevDbmlRef.current;
+        const detected = detectRenames(prev, next);
+        if (detected.length === 1) {
+          const r = detected[0];
+          if (r.kind === 'table' && r.oldId !== r.newId) {
+            const propagated = renameTable(next, r.oldId, r.newId);
+            prevDbmlRef.current = propagated;
+            migrateTableId(r.oldId, r.newId);
+            setDbml(propagated);
+            setStatus(`Renomeado ${r.oldId} → ${r.newId} (refs atualizadas)`);
+            return;
+          }
+          if (r.kind === 'column' && r.oldCol !== r.newCol) {
+            const propagated = renameColumnAllRefs(next, r.table, r.oldCol, r.newCol);
+            prevDbmlRef.current = propagated;
+            setDbml(propagated);
+            const sel = useInteraction.getState().selectedColumn;
+            if (sel?.table === r.table && sel.column === r.oldCol) {
+              selectColumn({ table: r.table, column: r.newCol });
+            }
+            setStatus(`Coluna ${r.oldCol} → ${r.newCol} (refs atualizadas)`);
+            return;
+          }
+        }
+        prevDbmlRef.current = next;
+      }, 300);
+    },
+    [migrateTableId, selectColumn],
+  );
+
+  const goToLine = useCallback((line: number) => {
+    setEditorCollapsed(false);
+    requestAnimationFrame(() => editorRef.current?.goToLine(line));
+  }, []);
+
+  const goToColumn = useCallback((table: string, column: string) => {
+    setEditorCollapsed(false);
+    requestAnimationFrame(() => editorRef.current?.goToColumn(table, column));
+  }, []);
 
   const clearFocusTable = useCallback(() => setFocusTableId(null), []);
 
@@ -249,9 +335,22 @@ export default function App() {
   const actions = useMemo<CanvasActions>(
     () => ({
       onSelectColumn: (table, column) => selectColumn({ table, column }),
-      onRenameColumn: (table, oldName, newName) =>
-        setDbml((d) => renameColumn(d, table, oldName, newName)),
-      onRenameTable: (tableId, newName) => setDbml((d) => renameTable(d, tableId, newName)),
+      onRenameColumn: (table, oldName, newName) => {
+        setDbml((d) => {
+          const next = renameColumnAllRefs(d, table, oldName, newName);
+          prevDbmlRef.current = next;
+          return next;
+        });
+      },
+      onGoToColumn: goToColumn,
+      onRenameTable: (tableId, newName) => {
+        setDbml((d) => {
+          const next = renameTable(d, tableId, newName);
+          prevDbmlRef.current = next;
+          return next;
+        });
+        migrateTableId(tableId, newName.trim());
+      },
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
       colorOf: (id) => colors[id],
       onSetColor: (id, color) =>
@@ -286,7 +385,7 @@ export default function App() {
         return { sources, sample, pks, fks, refsIn, note: t?.note, columnNotes, has };
       },
     }),
-    [colors, selectColumn, layerOf, layersArr, canvasModel, lineage],
+    [colors, selectColumn, layerOf, layersArr, canvasModel, lineage, goToColumn, migrateTableId],
   );
 
   const handleCreateLineage = (source: string, target: string) => {
@@ -295,6 +394,29 @@ export default function App() {
   };
   const handleRemoveLineage = (source: string, target: string) => {
     setDbml((d) => removeLineageEntry(d, source, target));
+  };
+  const handleAddFieldLineage = (
+    sourceTable: string, sourceColumn: string, targetColumn: string, note?: string, ref?: string,
+  ) => {
+    const targetTable = useInteraction.getState().selectedTable;
+    if (!targetTable) return;
+    setDbml((d) =>
+      addFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
+    );
+  };
+  const handleRemoveFieldLineage = (
+    sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
+  ) => {
+    setDbml((d) => removeFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn));
+  };
+  const handleUpdateFieldLineageMeta = (
+    sourceTable: string, sourceColumn: string, targetColumn: string, note: string, ref: string,
+  ) => {
+    const targetTable = useInteraction.getState().selectedTable;
+    if (!targetTable) return;
+    setDbml((d) =>
+      updateFieldLineageMeta(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
+    );
   };
   const handleToggleGroup = (name: string) =>
     setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]));
@@ -445,7 +567,15 @@ export default function App() {
               )}
             </svg>
           </button>
-          <Editor value={dbml} onChange={setDbml} error={parsed.error} onFocusTable={focusTable} />
+          <Editor
+            ref={editorRef}
+            value={dbml}
+            onChange={handleDbmlChange}
+            error={parsed.error}
+            errorLine={parsed.errorLine}
+            onFocusTable={focusTable}
+            onGoToError={() => setEditorCollapsed(false)}
+          />
         </section>
         <section className="pane pane--canvas">
           <CanvasActionsCtx.Provider value={actions}>
@@ -456,8 +586,10 @@ export default function App() {
               onCreateRef={handleCreateRef}
               onRemoveRef={handleRemoveRef}
               lineage={lineage}
+              lineageFields={canvasModel.lineageFields ?? []}
               onCreateLineage={handleCreateLineage}
               onRemoveLineage={handleRemoveLineage}
+              onRemoveFieldLineage={handleRemoveFieldLineage}
               layerOf={layerOf}
               collapsedGroups={collapsedGroups}
               onToggleGroup={handleToggleGroup}
@@ -472,8 +604,34 @@ export default function App() {
               onFocusTable={focusTable}
               onAutolayout={handleAutolayout}
             />
-            <ProblemsPanel issues={modelIssues} onFocusTable={focusTable} />
-            <ColumnPanel dbml={dbml} tables={canvasModel.tables} onApply={setDbml} />
+            <ProblemsPanel issues={modelIssues} onFocusTable={focusTable} onGoToLine={goToLine} />
+            <ColumnPanel
+              dbml={dbml}
+              tables={canvasModel.tables}
+              onApply={(next) => {
+                prevDbmlRef.current = next;
+                setDbml(next);
+              }}
+              onRenameColumn={(table, oldName, newName) => {
+                setDbml((d) => {
+                  const next = renameColumnAllRefs(d, table, oldName, newName);
+                  prevDbmlRef.current = next;
+                  return next;
+                });
+                selectColumn({ table, column: newName });
+              }}
+              onGoToColumn={goToColumn}
+            />
+            <FieldLineagePanel
+              tables={canvasModel.tables}
+              mappings={canvasModel.lineageFields ?? []}
+              onAdd={handleAddFieldLineage}
+              onRemove={(st, sc, tc) => {
+                const tt = useInteraction.getState().selectedTable;
+                if (tt) handleRemoveFieldLineage(st, sc, tt, tc);
+              }}
+              onUpdateMeta={handleUpdateFieldLineageMeta}
+            />
           </CanvasActionsCtx.Provider>
           <RecordsPanel records={canvasModel.records} tables={canvasModel.tables} />
         </section>

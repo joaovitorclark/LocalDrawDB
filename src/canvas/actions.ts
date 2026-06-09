@@ -17,6 +17,7 @@ export type TableMeta = {
 export type CanvasActions = {
   onSelectColumn: (table: string, column: string) => void;
   onRenameColumn: (table: string, oldName: string, newName: string) => void;
+  onGoToColumn?: (table: string, column: string) => void;
   onRenameTable: (tableId: string, newName: string) => void;
   onAddColumn: (table: string) => void;
   colorOf: (tableId: string) => string | undefined;
