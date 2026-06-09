@@ -9,7 +9,7 @@ import { defaultTablePosition } from './canvas/defaultTablePosition';
 import { ProblemsPanel } from './canvas/ProblemsPanel';
 import {
   appendRef, removeRef, removeTable, renameColumnAllRefs, renameTable, addColumn, setTableLayer, addLayerGroup,
-  addLineageEntry, removeLineageEntry, addFieldLineageEntry, removeFieldLineageEntry, updateFieldLineageMeta,
+  addLineageEntry, removeLineageEntry, addFieldLineageEntry, removeFieldLineageEntry, updateFieldLineageEntry,
 } from './dsl/edit';
 import { RecordsPanel } from './records/RecordsPanel';
 import { ColumnPanel } from './canvas/ColumnPanel';
@@ -559,13 +559,17 @@ export default function App() {
   ) => {
     mutateDbml((d) => removeFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn));
   };
-  const handleUpdateFieldLineageMeta = (
-    sourceTable: string, sourceColumn: string, targetColumn: string, note: string, ref: string,
+  const handleUpdateFieldLineage = (
+    prev: { sourceTable: string; sourceColumn: string; targetTable: string; targetColumn: string },
+    next: { sourceTable: string; sourceColumn: string; targetColumn: string; note?: string; ref?: string },
   ) => {
     const targetTable = useInteraction.getState().selectedTable;
     if (!targetTable) return;
     mutateDbml((d) =>
-      updateFieldLineageMeta(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
+      updateFieldLineageEntry(d, prev, {
+        ...next,
+        targetTable,
+      }),
     );
   };
   const handleToggleGroup = (name: string) =>
@@ -796,11 +800,11 @@ export default function App() {
               tables={activeModel.tables}
               mappings={activeModel.lineageFields ?? []}
               onAdd={handleAddFieldLineage}
+              onUpdate={handleUpdateFieldLineage}
               onRemove={(st, sc, tc) => {
                 const tt = useInteraction.getState().selectedTable;
                 if (tt) handleRemoveFieldLineage(st, sc, tt, tc);
               }}
-              onUpdateMeta={handleUpdateFieldLineageMeta}
             />
           </CanvasActionsCtx.Provider>
           <RecordsPanel records={activeModel.records} tables={activeModel.tables} />

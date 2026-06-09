@@ -69,3 +69,41 @@ export function focusTableInView(
   setCenter(cx, cy, { zoom, duration: 280 });
   return true;
 }
+
+export type FitBoundsFn = (
+  bounds: FlowBounds,
+  options?: { padding?: number; duration?: number },
+) => void;
+
+/** Enquadra origem e destino de um mapeamento L2 no viewport. */
+export function fieldMappingFocusBounds(
+  getNode: (id: string) => Node | undefined,
+  sourceTable: string,
+  targetTable: string,
+): FlowBounds | null {
+  const src = getNode(sourceTable);
+  const tgt = getNode(targetTable);
+  if (!src || !tgt || src.hidden || tgt.hidden || src.type !== 'table' || tgt.type !== 'table') {
+    return null;
+  }
+  const sb = tableFocusBounds(src);
+  const tb = tableFocusBounds(tgt);
+  if (!sb || !tb) return null;
+  const minX = Math.min(sb.x, tb.x);
+  const minY = Math.min(sb.y, tb.y);
+  const maxX = Math.max(sb.x + sb.width, tb.x + tb.width);
+  const maxY = Math.max(sb.y + sb.height, tb.y + tb.height);
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+export function focusFieldMappingInView(
+  getNode: (id: string) => Node | undefined,
+  fitBounds: FitBoundsFn,
+  sourceTable: string,
+  targetTable: string,
+): boolean {
+  const bounds = fieldMappingFocusBounds(getNode, sourceTable, targetTable);
+  if (!bounds) return false;
+  fitBounds(bounds, { padding: 0.18, duration: 320 });
+  return true;
+}
