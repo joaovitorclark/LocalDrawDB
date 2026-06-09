@@ -6,7 +6,7 @@ export type FieldLineageEdgeData = {
   label?: string;
 };
 
-/** Aresta fina coluna→coluna (só quando toggle ativo + tabela selecionada). */
+/** Aresta L2 coluna→coluna: roxa tracejada (distinta da L1 contínua). */
 export function FieldLineageEdge({
   sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data,
 }: EdgeProps<FieldLineageEdgeData>) {
@@ -19,10 +19,10 @@ export function FieldLineageEdge({
     <BaseEdge
       path={path}
       style={{
-        stroke: active ? '#0d9488' : '#5eead4',
+        stroke: active ? '#7c3aed' : '#a78bfa',
         strokeWidth: active ? 2 : 1.25,
-        strokeDasharray: '3 3',
-        opacity: dimmed ? 0.15 : 0.85,
+        strokeDasharray: '5 4',
+        opacity: dimmed ? 0.15 : 0.9,
       }}
     />
   );

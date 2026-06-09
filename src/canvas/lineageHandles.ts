@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
 import { Position } from 'reactflow';
+import type { TableView } from '../dsl/parse';
+import { nodeHeight, nodeWidth } from './nodeMetrics';
 
 export type LineagePort = {
   id: string;
@@ -7,59 +9,51 @@ export type LineagePort = {
   style: CSSProperties;
 };
 
-/** 3 pontos por lado na borda do cartão (estilo draw.io). */
-function sidePorts(
-  side: 'l' | 'r' | 't' | 'b',
-  position: Position,
-  axis: 'top' | 'left',
-  values: string[],
-): LineagePort[] {
-  return values.map((v, i) => ({
-    id: `lin-${side}-${i}`,
-    position,
-    style: axis === 'top' ? { top: v } : { left: v },
-  }));
-}
-
+/** Um ponto por lado, no meio da borda (4 portas por tabela). */
 export const LINEAGE_PORTS: LineagePort[] = [
-  ...sidePorts('l', Position.Left, 'top', ['22%', '50%', '78%']),
-  ...sidePorts('r', Position.Right, 'top', ['22%', '50%', '78%']),
-  ...sidePorts('t', Position.Top, 'left', ['25%', '50%', '75%']),
-  ...sidePorts('b', Position.Bottom, 'left', ['25%', '50%', '75%']),
+  { id: 'lin-l', position: Position.Left, style: { top: '50%' } },
+  { id: 'lin-r', position: Position.Right, style: { top: '50%' } },
+  { id: 'lin-t', position: Position.Top, style: { left: '50%' } },
+  { id: 'lin-b', position: Position.Bottom, style: { left: '50%' } },
 ];
 
-export const DEFAULT_LINEAGE_SOURCE = 'lin-r-1-s';
-export const DEFAULT_LINEAGE_TARGET = 'lin-l-1-t';
+export const DEFAULT_LINEAGE_SOURCE = 'lin-r-s';
+export const DEFAULT_LINEAGE_TARGET = 'lin-l-t';
 
-const LINEAGE_CARD_W = 230;
-const LINEAGE_CARD_H = 56;
+const FALLBACK_W = 230;
+const FALLBACK_H = 120;
 
 /** Escolhe portas de saída/entrada pelo lado mais curto entre os dois nós. */
 export function pickLineageHandles(
   sourcePos: { x: number; y: number },
   targetPos: { x: number; y: number },
-  sourceW = LINEAGE_CARD_W,
-  targetW = LINEAGE_CARD_W,
+  sourceTable?: TableView,
+  targetTable?: TableView,
 ): { sourceHandle: string; targetHandle: string } {
+  const sourceW = sourceTable ? nodeWidth(sourceTable) : FALLBACK_W;
+  const sourceH = sourceTable ? nodeHeight(sourceTable) : FALLBACK_H;
+  const targetW = targetTable ? nodeWidth(targetTable) : FALLBACK_W;
+  const targetH = targetTable ? nodeHeight(targetTable) : FALLBACK_H;
+
   const scx = sourcePos.x + sourceW / 2;
   const tcx = targetPos.x + targetW / 2;
-  const scy = sourcePos.y + LINEAGE_CARD_H / 2;
-  const tcy = targetPos.y + LINEAGE_CARD_H / 2;
+  const scy = sourcePos.y + sourceH / 2;
+  const tcy = targetPos.y + targetH / 2;
   const dx = tcx - scx;
   const dy = tcy - scy;
 
   if (Math.abs(dx) >= Math.abs(dy)) {
     if (dx <= 0) {
-      return { sourceHandle: 'lin-l-1-s', targetHandle: 'lin-r-1-t' };
+      return { sourceHandle: 'lin-l-s', targetHandle: 'lin-r-t' };
     }
-    return { sourceHandle: 'lin-r-1-s', targetHandle: 'lin-l-1-t' };
+    return { sourceHandle: 'lin-r-s', targetHandle: 'lin-l-t' };
   }
   if (dy <= 0) {
-    return { sourceHandle: 'lin-t-1-s', targetHandle: 'lin-b-1-t' };
+    return { sourceHandle: 'lin-t-s', targetHandle: 'lin-b-t' };
   }
-  return { sourceHandle: 'lin-b-1-s', targetHandle: 'lin-t-1-t' };
+  return { sourceHandle: 'lin-b-s', targetHandle: 'lin-t-t' };
 }
 
 export function isLineageHandle(id: string | null | undefined): boolean {
-  return !!id?.startsWith('lin-');
+  return !!id && /^lin-[lrtb]-[st]$/.test(id);
 }

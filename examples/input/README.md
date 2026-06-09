@@ -5,6 +5,8 @@ Estes arquivos ficam no repositório em `examples/input/`. O app importa de **`d
 ```bash
 mkdir -p data/input
 cp examples/input/demo_lakehouse.sql data/input/
+# Hierarquia de linhagem maior (multi-fonte, bronze→ouro em 5 níveis):
+cp examples/input/demo_lakehouse_complex.sql data/input/
 ```
 
 Depois use **Importar (input/)** na toolbar.
@@ -104,9 +106,17 @@ Exporte `CREATE TABLE` + opcionalmente `INSERT` para amostra. Recomendado prefix
 - **Linhagem L1/L2:** união (mantém entradas do editor + input; dedupe por par).
 - Refs manuais no editor são preservadas se não conflitarem.
 
-## Arquivo de exemplo
+## Arquivos de exemplo
 
-Veja [demo_lakehouse.sql](demo_lakehouse.sql):
+### [demo_lakehouse.sql](demo_lakehouse.sql) — canônico
 
 - **Lakehouse** (Spark/Delta): bronze → prata → ouro, `@layer` / `@group` / `@note` / `@fk` / `@origen` / `@map`, `INSERT`, PK composta em `gold.report_revenue`, `FOREIGN KEY` em `silver.fact_orders`
 - **Oracle** (final do arquivo): `staging.cliente` + `staging.pedido` com `COMMENT ON` e `CONSTRAINT … FOREIGN KEY`
+
+### [demo_lakehouse_complex.sql](demo_lakehouse_complex.sql) — hierarquia ampla
+
+- **8 fontes bronze** (ERP, CRM, catálogo, pagamentos, web, logística)
+- **Prata:** staging com `@origen` multi-fonte, dims, fatos, bridge
+- **Ouro:** agregados em cadeia (`fct_revenue_daily` → `fct_customer_spend` → `report_customer_360` → `report_exec_dashboard`)
+- **L1:** até 5 saltos desde bronze; fan-in com `@origen: tabela_a, tabela_b`
+- **L2:** dezenas de `@map` com `[note: '…']` descrevendo transformações ETL

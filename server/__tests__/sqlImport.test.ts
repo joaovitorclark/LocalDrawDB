@@ -206,6 +206,27 @@ describe('demo_lakehouse.sql', () => {
   });
 });
 
+describe('demo_lakehouse_complex.sql', () => {
+  it('importa hierarquia ampla de linhagem sem quebrar parse', () => {
+    const sql = readFileSync(join(process.cwd(), 'examples/input/demo_lakehouse_complex.sql'), 'utf8');
+    const m = sqlToModel(sql);
+    expect(m.tables.length).toBeGreaterThanOrEqual(20);
+    expect(m.lineage?.length).toBeGreaterThanOrEqual(10);
+    expect(m.lineageFields?.length).toBeGreaterThanOrEqual(50);
+    expect(m.lineage?.some((l) => l.target === 'gold.report_exec_dashboard')).toBe(true);
+    expect(
+      m.lineage?.some(
+        (l) =>
+          l.target === 'silver.stg_order_lines' &&
+          l.sources?.includes('raw.erp_order_lines'),
+      ),
+    ).toBe(true);
+    const dbml = modelToDbml(m);
+    const parsed = parseDbml(dbml);
+    expect(parsed.error).toBeUndefined();
+  });
+});
+
 describe('COMMENT ON Oracle', () => {
   it('aplica notes de tabela e coluna', () => {
     const m = sqlToModel(`

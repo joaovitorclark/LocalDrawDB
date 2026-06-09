@@ -12,7 +12,9 @@ export function TableNode({ data }: { data: TableView }) {
   const actions = useCanvasActions();
   const selected = useInteraction((s) => s.selectedColumn);
   const lineageMode = useInteraction((s) => s.lineageMode);
+  const lineageVisible = useInteraction((s) => s.lineageVisible);
   const fieldLineageVisible = useInteraction((s) => s.fieldLineageVisible);
+  const showLineagePorts = lineageMode || lineageVisible;
   const [palette, setPalette] = useState(false);
   const [infoRect, setInfoRect] = useState<DOMRect | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -28,8 +30,10 @@ export function TableNode({ data }: { data: TableView }) {
   };
 
   return (
-    <div className={`table-node-shell ${lineageMode ? 'table-node-shell--lineage' : ''}`}>
-      {lineageMode && <LineagePorts />}
+    <div
+      className={`table-node-shell${lineageMode ? ' table-node-shell--lineage' : ''}${showLineagePorts ? ' table-node-shell--lineage-ports' : ''}`}
+    >
+      {showLineagePorts && <LineagePorts />}
       <div className="table-node">
         <div className="table-node__header" style={{ background: color }}>
           <span

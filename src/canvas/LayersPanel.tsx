@@ -90,6 +90,7 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
           {lineageMode && (
             <p className="layers-panel__hint">
               Arraste entre os pontos nas bordas. Relacionamentos desligam automaticamente.
+              Organizar canvas empilha TableGroups por camada (bronze→ouro), maiores à esquerda dentro de cada grupo.
             </p>
           )}
 
@@ -121,7 +122,11 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
             )}
           </ul>
           {onAutolayout && (
-            <button type="button" className="layers-panel__autolayout" onClick={onAutolayout}>
+            <button
+              type="button"
+              className={`layers-panel__autolayout${lineageMode ? ' layers-panel__autolayout--lineage' : ''}`}
+              onClick={onAutolayout}
+            >
               Organizar canvas
             </button>
           )}

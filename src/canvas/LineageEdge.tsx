@@ -6,7 +6,7 @@ export type LineageEdgeData = {
   onRemove?: () => void;
 };
 
-// Aresta de LINHAGEM (tabela derivada de outra) — distinta das de PK/FK: tracejada, roxa.
+// Aresta L1 (tabela→tabela): roxa contínua, portas no meio das 4 bordas.
 export function LineageEdge({
   sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected,
 }: EdgeProps<LineageEdgeData>) {
@@ -22,7 +22,6 @@ export function LineageEdge({
         style={{
           stroke: active ? '#7c3aed' : '#8b5cf6',
           strokeWidth: selected ? 3.5 : active ? 3 : 2,
-          strokeDasharray: '6 4',
           opacity: dimmed ? 0.2 : 1,
         }}
       />

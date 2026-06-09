@@ -4,7 +4,7 @@ import { Canvas } from './canvas/Canvas';
 import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from './dsl/parse';
 import { validateModel } from './dsl/validateModel';
 import { organize } from './dsl/organize';
-import { autolayoutPositions } from './canvas/autolayout';
+import { autolayoutLineagePositions, autolayoutPositions } from './canvas/autolayout';
 import { defaultTablePosition } from './canvas/defaultTablePosition';
 import { ProblemsPanel } from './canvas/ProblemsPanel';
 import {
@@ -426,9 +426,15 @@ export default function App() {
 
   const handleAutolayout = useCallback(() => {
     const lineageMode = useInteraction.getState().lineageMode;
-    setPositions(autolayoutPositions(activeModel, lineageMode));
+    setPositions(
+      lineageMode ? autolayoutLineagePositions(activeModel) : autolayoutPositions(activeModel, false),
+    );
     setFitViewTrigger((n) => n + 1);
-    setStatus(`Canvas reorganizado (${activeModel.tables.length} tabelas)`);
+    setStatus(
+      lineageMode
+        ? `Canvas reorganizado para linhagem (${activeModel.tables.length} tabelas)`
+        : `Canvas reorganizado (${activeModel.tables.length} tabelas)`,
+    );
     setSaveState('dirty');
   }, [activeModel]);
 
