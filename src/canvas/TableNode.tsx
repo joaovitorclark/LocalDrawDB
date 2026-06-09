@@ -108,7 +108,10 @@ export function TableNode({ data }: { data: TableView }) {
                   <div
                     key={c.name}
                     className={`col-row ${c.pk ? 'is-pk' : ''} ${isSel ? 'is-selected' : ''}`}
-                    onClick={() => actions.onSelectColumn(data.id, c.name)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      actions.onSelectColumn(data.id, c.name);
+                    }}
                   >
                     <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
                     {editing === c.name ? (
