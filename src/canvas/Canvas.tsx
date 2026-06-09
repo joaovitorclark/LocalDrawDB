@@ -33,6 +33,9 @@ type Props = {
   onPositionsChange: (p: Positions) => void;
   onCreateRef: (a: string, ac: string, b: string, bc: string) => void;
   onRemoveRef: (a: string, ac: string, b: string, bc: string) => void;
+  onRemoveTable: (tableId: string) => void;
+  onRemoveTables?: (tableIds: string[]) => void;
+  staleWarning?: boolean;
   lineage: LineageLink[];
   lineageFields: ParsedFieldLineage[];
   onCreateLineage: (source: string, target: string) => void;
@@ -44,6 +47,8 @@ type Props = {
   collapsedGroups: string[];
   onToggleGroup: (name: string) => void;
   focusTableId?: string | null;
+  /** Incrementa para repetir foco na mesma tabela (ex.: posição recém-atribuída). */
+  focusNonce?: number;
   onFocusTableDone?: () => void;
   /** Incrementa após Organizar canvas para dar fitView. */
   fitViewTrigger?: number;
@@ -93,9 +98,11 @@ function InitialFitHelper({ tableCount }: { tableCount: number }) {
 
 function FocusTableHelper({
   tableId,
+  focusNonce,
   onDone,
 }: {
   tableId: string | null | undefined;
+  focusNonce?: number;
   onDone?: () => void;
 }) {
   const { setCenter, getNode } = useReactFlow();
@@ -115,14 +122,14 @@ function FocusTableHelper({
     return () => {
       cancelled = true;
     };
-  }, [tableId, setCenter, getNode, onDone]);
+  }, [tableId, focusNonce, setCenter, getNode, onDone]);
   return null;
 }
 
 export function Canvas(props: Props) {
-  const { parsed, positions, onPositionsChange, onCreateRef, onRemoveRef, lineage, lineageFields,
-    onCreateLineage, onRemoveLineage, onRemoveFieldLineage, layerOf, collapsedGroups, onToggleGroup,
-    focusTableId, onFocusTableDone, fitViewTrigger } = props;
+  const { parsed, positions, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
+    staleWarning, lineage, lineageFields, onCreateLineage, onRemoveLineage, onRemoveFieldLineage,
+    layerOf, collapsedGroups, onToggleGroup, focusTableId, focusNonce, onFocusTableDone, fitViewTrigger } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const hovered = useInteraction((s) => s.hoveredTableId);
@@ -407,6 +414,16 @@ export function Canvas(props: Props) {
     }
   }, [nodes, positions, onPositionsChange]);
 
+  const onNodesDelete = useCallback(
+    (deleted: Node[]) => {
+      const tableIds = deleted.filter((n) => n.type === 'table').map((n) => n.id);
+      if (!tableIds.length) return;
+      if (tableIds.length === 1) onRemoveTable(tableIds[0]);
+      else onRemoveTables?.(tableIds);
+    },
+    [onRemoveTable, onRemoveTables],
+  );
+
   const onEdgesDelete = useCallback((deleted: Edge[]) => {
     for (const e of deleted) {
       if (e.type === 'lineage') onRemoveLineage(e.source, e.target);
@@ -430,7 +447,12 @@ export function Canvas(props: Props) {
 
   return (
     <div className="canvas-wrap">
-      <SelectionBar />
+      {staleWarning && (
+        <div className="canvas-stale-banner" role="status">
+          Canvas mostra último modelo válido — corrija o DBML no editor
+        </div>
+      )}
+      <SelectionBar onRemoveTables={onRemoveTables} />
       <EdgeMarkers />
       <ReactFlow
         nodes={nodes}
@@ -438,6 +460,7 @@ export function Canvas(props: Props) {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
+        onNodesDelete={onNodesDelete}
         onEdgesChange={onEdgesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
@@ -474,7 +497,7 @@ export function Canvas(props: Props) {
       >
         <InitialFitHelper tableCount={parsed.tables.length} />
         <AutolayoutFitHelper trigger={fitViewTrigger} />
-        <FocusTableHelper tableId={focusTableId} onDone={onFocusTableDone} />
+        <FocusTableHelper tableId={focusTableId} focusNonce={focusNonce} onDone={onFocusTableDone} />
         <Background />
         <Controls />
         <MiniMap pannable zoomable />

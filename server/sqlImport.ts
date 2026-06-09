@@ -1,7 +1,7 @@
 // Import de arquivos .sql (Spark/Hive, Oracle, ANSI) -> modelo canônico.
 import { createRequire } from 'node:module';
 import { parseTypeName, qualifiedName } from './model.ts';
-import type { Column, Model, Ref, Table } from './model.ts';
+import type { Column, FieldLineageEntry, LineageEntry, Model, Ref, Table } from './model.ts';
 
 const require = createRequire(import.meta.url);
 const { Parser } = require('node-sql-parser') as { Parser: new () => { astify: Function } };
@@ -34,6 +34,22 @@ function splitStatements(sql: string): string[] {
     .filter(Boolean);
 }
 
+/** Remove comentários `-- …` no fim da linha (preserva vírgula separadora de colunas). */
+function stripInlineLineComments(sql: string): string {
+  return sql
+    .split('\n')
+    .map((line) => {
+      const idx = line.indexOf('--');
+      if (idx < 0) return line;
+      const before = line.slice(0, idx).trimEnd();
+      const commentTail = line.slice(idx);
+      const commaAfterComment = /,\s*$/.test(commentTail);
+      if (commaAfterComment && !before.endsWith(',')) return `${before},`;
+      return before;
+    })
+    .join('\n');
+}
+
 /** Remove linhas `-- …` antes de extrair FK do DDL (evita exemplos no cabeçalho do arquivo). */
 function stripLineComments(sql: string): string {
   return sql
@@ -60,24 +76,28 @@ type TableMeta = {
   layer?: string;
   group?: string;
   note?: string;
+  origins: string[];
   fks: Array<{ fromCol: string; toTable: string; toCol: string }>;
 };
 
-/** Metadados `-- @layer`, `@group`, `@note`, `@fk` / `@ref` acima do CREATE. */
+/** Metadados `-- @layer`, `@group`, `@note`, `@origen`, `@fk` / `@ref` acima do CREATE. */
 function extractMetaComments(sql: string): Map<number, TableMeta> {
   const meta = new Map<number, TableMeta>();
   const lines = sql.split('\n');
-  let pending: TableMeta = { fks: [] };
+  let pending: TableMeta = { origins: [], fks: [] };
 
   const flush = (lineIdx: number) => {
-    if (!pending.layer && !pending.group && !pending.note && !pending.fks.length) return;
+    if (!pending.layer && !pending.group && !pending.note && !pending.origins.length && !pending.fks.length) {
+      return;
+    }
     meta.set(lineIdx, {
       layer: pending.layer,
       group: pending.group,
       note: pending.note,
+      origins: [...pending.origins],
       fks: [...pending.fks],
     });
-    pending = { fks: [] };
+    pending = { origins: [], fks: [] };
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -86,6 +106,13 @@ function extractMetaComments(sql: string): Map<number, TableMeta> {
     if (fkMatch) {
       const parsed = parseFkComment(fkMatch[1]);
       if (parsed) pending.fks.push(parsed);
+      continue;
+    }
+    const origenMatch = /^--\s*@(?:origen|origem)\s*:\s*(.+)$/i.exec(trimmed);
+    if (origenMatch) {
+      for (const src of origenMatch[1].split(',').map((s) => s.trim()).filter(Boolean)) {
+        pending.origins.push(src);
+      }
       continue;
     }
     const metaMatch = /^--\s*@(\w+)\s*:\s*(.+)$/.exec(trimmed);
@@ -99,7 +126,7 @@ function extractMetaComments(sql: string): Map<number, TableMeta> {
     if (/create\s+(?:external\s+|temporary\s+)?table/i.test(trimmed)) {
       flush(i);
     } else if (trimmed && !trimmed.startsWith('--')) {
-      pending = { fks: [] };
+      pending = { origins: [], fks: [] };
     }
   }
   return meta;
@@ -188,7 +215,7 @@ function parseColumnsFallback(body: string): ParseColResult {
   const compositePks: string[][] = [];
   const columns: Column[] = [];
 
-  for (const part of splitTopLevel(inner)) {
+  for (const part of splitTopLevelRespectingLineComments(inner)) {
     const pkInline = /\bprimary\s+key\b/i.test(part);
     const pkm = /(?:constraint\s+\w+\s+)?primary\s+key\s*\(([^)]*)\)/i.exec(part);
     if (pkm) {
@@ -285,7 +312,7 @@ function metaFksToRefs(
 }
 
 export function createTableToTable(stmt: string): Table | null {
-  const san = sanitizeCreateTable(stmt);
+  const san = sanitizeCreateTable(stripInlineLineComments(stmt));
   if (!san) return null;
 
   let columns: Column[] = [];
@@ -361,6 +388,202 @@ function refDedupeKey(r: Ref): string {
   return `${r.from.table}.${r.from.column}->${r.to.table}.${r.to.column}`.toLowerCase();
 }
 
+const MAP_INLINE_RE = /--\s*@(?:map|mapeamento)\s*<-\s*([A-Za-z0-9_.]+)(?:\s*\[([^\]]*)\])?\s*$/i;
+
+function parseMapMeta(bracket: string | undefined): { note?: string; ref?: string } {
+  if (!bracket?.trim()) return {};
+  const note = /note\s*:\s*'([^']*)'/i.exec(bracket)?.[1];
+  const ref = /ref\s*:\s*'([^']*)'/i.exec(bracket)?.[1];
+  return { note, ref };
+}
+
+function splitTopLevelRespectingLineComments(inner: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  let inLineComment = false;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    const next = inner[i + 1];
+    if (!inLineComment && ch === '-' && next === '-') inLineComment = true;
+    if (inLineComment) {
+      cur += ch;
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
+function extractCreateTableBody(stmt: string): string | null {
+  const openRe =
+    /create\s+(?:external\s+|temporary\s+)?table\s+(?:if\s+not\s+exists\s+)?[`"']?[A-Za-z0-9_.]+[`"']?\s*\(/i;
+  const open = openRe.exec(stmt);
+  if (!open) return null;
+  const parenStart = open.index + open[0].length - 1;
+  let depth = 0;
+  for (let i = parenStart; i < stmt.length; i++) {
+    if (stmt[i] === '(') depth++;
+    else if (stmt[i] === ')') {
+      depth--;
+      if (depth === 0) return stmt.slice(parenStart + 1, i);
+    }
+  }
+  return null;
+}
+
+/** Extrai `@map` inline nas colunas do CREATE TABLE. */
+function extractFieldLineageFromStmt(
+  stmt: string,
+  table: Pick<Table, 'name' | 'schema'>,
+): FieldLineageEntry[] {
+  const targetTable = qualifiedName(table);
+  const entries: FieldLineageEntry[] = [];
+  const innerRaw = extractCreateTableBody(stmt);
+  if (!innerRaw) return entries;
+
+  const parsePart = (rawPart: string) => {
+    const trimmedPart = rawPart.trim().replace(/,\s*$/, '');
+    if (!trimmedPart) return;
+    if (/^(constraint|foreign\s+key|unique|key|index)\b/i.test(trimmedPart)) return;
+    if (/(?:^|\s)primary\s+key\s*\(/i.test(trimmedPart)) return;
+    const mapMatch = MAP_INLINE_RE.exec(trimmedPart);
+    if (!mapMatch) return;
+    const colMatch = /^([`"]?[A-Za-z_][\w]*[`"]?)\s+/i.exec(trimmedPart);
+    if (!colMatch) return;
+    const targetColumn = colMatch[1].replace(/[`"]/g, '');
+    const sourceQualified = mapMatch[1];
+    const lastDot = sourceQualified.lastIndexOf('.');
+    if (lastDot <= 0) return;
+    const sourceTable = sourceQualified.slice(0, lastDot);
+    const sourceColumn = sourceQualified.slice(lastDot + 1);
+    if (!sourceTable || !sourceColumn) return;
+    entries.push({
+      targetTable,
+      targetColumn,
+      sourceTable,
+      sourceColumn,
+      ...parseMapMeta(mapMatch[2]),
+    });
+  };
+
+  if (/\n/.test(innerRaw)) {
+    for (const rawLine of innerRaw.split('\n')) parsePart(rawLine);
+  } else {
+    for (const part of splitTopLevelRespectingLineComments(innerRaw)) parsePart(part);
+  }
+  return entries;
+}
+
+function lineageEntryKey(entry: LineageEntry): string {
+  return entry.target.toLowerCase();
+}
+
+function fieldLineageKey(entry: FieldLineageEntry): string {
+  return `${entry.targetTable}.${entry.targetColumn}<-${entry.sourceTable}.${entry.sourceColumn}`.toLowerCase();
+}
+
+function mergeLineageEntries(base: LineageEntry[] | undefined, incoming: LineageEntry[] | undefined): LineageEntry[] {
+  const byTarget = new Map<string, { target: string; sources: Set<string> }>();
+  for (const entry of [...(base ?? []), ...(incoming ?? [])]) {
+    const key = lineageEntryKey(entry);
+    if (!byTarget.has(key)) byTarget.set(key, { target: entry.target, sources: new Set() });
+    for (const src of entry.sources) byTarget.get(key)!.sources.add(src);
+  }
+  return [...byTarget.values()].map(({ target, sources }) => ({
+    target,
+    sources: [...sources],
+  }));
+}
+
+function mergeFieldLineageEntries(
+  base: FieldLineageEntry[] | undefined,
+  incoming: FieldLineageEntry[] | undefined,
+): FieldLineageEntry[] {
+  const map = new Map<string, FieldLineageEntry>();
+  for (const entry of base ?? []) map.set(fieldLineageKey(entry), entry);
+  for (const entry of incoming ?? []) {
+    const key = fieldLineageKey(entry);
+    const existing = map.get(key);
+    if (existing) {
+      map.set(key, {
+        ...existing,
+        note: entry.note ?? existing.note,
+        ref: entry.ref ?? existing.ref,
+      });
+    } else {
+      map.set(key, entry);
+    }
+  }
+  return [...map.values()];
+}
+
+function appendLineageEntry(lineage: LineageEntry[], target: string, sources: string[]): void {
+  if (!sources.length) return;
+  const key = target.toLowerCase();
+  const existing = lineage.find((e) => e.target.toLowerCase() === key);
+  if (existing) {
+    const seen = new Set(existing.sources.map((s) => s.toLowerCase()));
+    for (const src of sources) {
+      if (!seen.has(src.toLowerCase())) {
+        existing.sources.push(src);
+        seen.add(src.toLowerCase());
+      }
+    }
+  } else {
+    lineage.push({ target, sources: [...sources] });
+  }
+}
+
+function validateLineage(model: Model, warnings: string[]): void {
+  const tableNames = new Set(model.tables.map((t) => qualifiedName(t).toLowerCase()));
+  const columnsByTable = new Map<string, Set<string>>();
+  for (const t of model.tables) {
+    columnsByTable.set(
+      qualifiedName(t).toLowerCase(),
+      new Set(t.columns.map((c) => c.name.toLowerCase())),
+    );
+  }
+
+  for (const entry of model.lineage ?? []) {
+    if (!tableNames.has(entry.target.toLowerCase())) {
+      warnings.push(`@origen: tabela destino '${entry.target}' não encontrada`);
+    }
+    for (const src of entry.sources) {
+      if (!tableNames.has(src.toLowerCase())) {
+        warnings.push(`@origen: tabela origem '${src}' não encontrada (destino '${entry.target}')`);
+      }
+    }
+  }
+
+  for (const field of model.lineageFields ?? []) {
+    if (!tableNames.has(field.targetTable.toLowerCase())) {
+      warnings.push(`@map: tabela destino '${field.targetTable}' não encontrada`);
+    }
+    if (!tableNames.has(field.sourceTable.toLowerCase())) {
+      warnings.push(`@map: tabela origem '${field.sourceTable}' não encontrada`);
+      continue;
+    }
+    const srcCols = columnsByTable.get(field.sourceTable.toLowerCase());
+    if (srcCols && !srcCols.has(field.sourceColumn.toLowerCase())) {
+      warnings.push(`@map: coluna '${field.sourceColumn}' não encontrada em '${field.sourceTable}'`);
+    }
+    const tgtCols = columnsByTable.get(field.targetTable.toLowerCase());
+    if (tgtCols && !tgtCols.has(field.targetColumn.toLowerCase())) {
+      warnings.push(`@map: coluna '${field.targetColumn}' não encontrada em '${field.targetTable}'`);
+    }
+  }
+}
+
 function unquoteSqlString(s: string): string {
   return s.replace(/''/g, "'");
 }
@@ -410,12 +633,15 @@ function applyOracleComments(tables: Table[], sql: string): void {
   }
 }
 
-/** Parse completo: tabelas + refs + metadados. */
+/** Parse completo: tabelas + refs + metadados + linhagem L1/L2. */
 export function sqlToModel(sql: string): Model {
   const tables: Table[] = [];
   const refs: Ref[] = [];
+  const lineage: LineageEntry[] = [];
+  const lineageFields: FieldLineageEntry[] = [];
   const warnings: string[] = [];
   const refSeen = new Set<string>();
+  const fieldSeen = new Set<string>();
   const metaMap = extractMetaComments(sql);
   const stmts = splitStatements(sql);
 
@@ -424,6 +650,13 @@ export function sqlToModel(sql: string): Model {
     if (refSeen.has(k)) return;
     refSeen.add(k);
     refs.push(r);
+  };
+
+  const addFieldLineage = (entry: FieldLineageEntry) => {
+    const k = fieldLineageKey(entry);
+    if (fieldSeen.has(k)) return;
+    fieldSeen.add(k);
+    lineageFields.push(entry);
   };
 
   for (const stmt of stmts) {
@@ -440,11 +673,13 @@ export function sqlToModel(sql: string): Model {
         t.note = meta.note;
         t.noteInRecordsOnly = true;
       }
+      if (meta.origins.length) appendLineageEntry(lineage, qualifiedName(t), meta.origins);
       for (const r of metaFksToRefs(meta.fks, t)) addRef(r);
       metaMap.delete(createLine);
     }
 
     for (const r of extractForeignKeysFromStmt(stripLineComments(stmt), t, warnings)) addRef(r);
+    for (const field of extractFieldLineageFromStmt(stmt, t)) addFieldLineage(field);
 
     const inserts = parseInserts(sql, t.name);
     if (inserts.rows.length) {
@@ -458,7 +693,16 @@ export function sqlToModel(sql: string): Model {
   }
 
   applyOracleComments(tables, sql);
-  return { tables, refs, warnings: warnings.length ? warnings : undefined };
+
+  const model: Model = {
+    tables,
+    refs,
+    lineage: lineage.length ? lineage : undefined,
+    lineageFields: lineageFields.length ? lineageFields : undefined,
+  };
+  validateLineage(model, warnings);
+  if (warnings.length) model.warnings = warnings;
+  return model;
 }
 
 /** @deprecated Use sqlToModel */
@@ -482,9 +726,13 @@ export function mergeModel(base: Model, incoming: Model): Model {
   }
 
   const warnings = [...(base.warnings ?? []), ...(incoming.warnings ?? [])];
+  const lineage = mergeLineageEntries(base.lineage, incoming.lineage);
+  const lineageFields = mergeFieldLineageEntries(base.lineageFields, incoming.lineageFields);
   return {
     tables: [...byKey.values()],
     refs,
+    lineage: lineage.length ? lineage : undefined,
+    lineageFields: lineageFields.length ? lineageFields : undefined,
     warnings: warnings.length ? warnings : undefined,
   };
 }

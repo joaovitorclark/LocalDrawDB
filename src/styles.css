@@ -222,14 +222,40 @@ body {
   font-size: 14px;
   line-height: 1;
 }
-.selection-bar__clear {
+.selection-bar__clear,
+.selection-bar__delete {
   border: none;
   background: transparent;
-  color: #64748b;
   cursor: pointer;
   font-size: 11px;
-  text-decoration: underline;
   padding: 0 4px;
+}
+.selection-bar__clear {
+  color: #64748b;
+  text-decoration: underline;
+}
+.selection-bar__delete {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.canvas-stale-banner {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  left: 8px;
+  z-index: 11;
+  margin-left: auto;
+  max-width: 420px;
+  margin-right: 0;
+  margin-left: auto;
+  padding: 6px 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 11px;
+  text-align: center;
+  pointer-events: none;
 }
 .panes--editor-collapsed .pane--canvas {
   width: calc(100% - 32px);
@@ -383,6 +409,7 @@ body {
   opacity: 0.8;
   font-weight: 400;
 }
+.table-node__delete,
 .table-node__color {
   background: transparent;
   border: none;
@@ -390,6 +417,15 @@ body {
   cursor: pointer;
   font-size: 12px;
   padding: 0 2px;
+}
+.table-node__delete {
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.table-node__delete:hover {
+  opacity: 1;
+  color: #fecaca;
 }
 .table-node__color:hover {
   color: #fff;

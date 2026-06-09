@@ -6,6 +6,7 @@ import { sparkDDLBySchema } from './ddl/spark.ts';
 import { modelToErwinDDL } from './ddl/erwin.ts';
 import { modelToMermaid } from './ddl/mermaid.ts';
 import { modelToDbtFiles } from './dbtExport.ts';
+import { modelToInputSql, type InputDialect } from './sqlExport.ts';
 import {
   loadProject,
   readInputSql,
@@ -18,6 +19,7 @@ import type { Model } from './model.ts';
 
 type ProjectBody = { dbml?: string; canvas?: unknown };
 type DbmlBody = { dbml?: string };
+type InputBody = { dbml?: string; dialect?: InputDialect };
 type PngBody = { pngBase64?: string };
 
 /** Faz parse do DBML; em caso de erro de sintaxe responde 400 e retorna null. */
@@ -25,7 +27,7 @@ function parseOr400(dbml: string, reply: FastifyReply): Model | null {
   try {
     return dbmlToModel(dbml);
   } catch (e: any) {
-    const msg = e?.diags?.[0]?.error ?? e?.message ?? 'DBML inválido';
+    const msg = e?.diags?.[0]?.message ?? e?.diags?.[0]?.error ?? e?.message ?? 'DBML inválido';
     reply.code(400).send({ error: `DBML inválido: ${msg}` });
     return null;
   }
@@ -106,6 +108,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const model = parseOr400(req.body?.dbml ?? '', reply);
     if (!model) return reply;
     const file = await writeOutput('mermaid/modelo.mmd', modelToMermaid(model));
+    return { files: [file] };
+  });
+
+  // Exporta SQL no formato data/input/ (Spark ou Oracle).
+  app.post<{ Body: InputBody }>('/api/export/input', async (req, reply) => {
+    const model = parseOr400(req.body?.dbml ?? '', reply);
+    if (!model) return reply;
+    const dialect = req.body?.dialect ?? 'spark';
+    const content = modelToInputSql(model, dialect);
+    const filename =
+      dialect === 'oracle' ? 'lakehouse_oracle.sql' : 'lakehouse_export.sql';
+    const file = await writeOutput(`input/${filename}`, content);
     return { files: [file] };
   });
 

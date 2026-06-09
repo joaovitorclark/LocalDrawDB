@@ -18,7 +18,16 @@ async function post<T>(url: string, body: unknown): Promise<T> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  if (!res.ok) {
+    let detail = `${url} -> ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) detail += `: ${j.error}`;
+    } catch {
+      /* corpo não-JSON */
+    }
+    throw new Error(detail);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -48,3 +57,8 @@ export const exportMermaid = (dbml: string) =>
   post<{ files: string[] }>('/api/export/mermaid', { dbml });
 export const exportPng = (pngBase64: string) =>
   post<{ file: string }>('/api/export/png', { pngBase64 });
+
+export type InputDialect = 'spark' | 'oracle' | 'auto';
+
+export const exportInput = (dbml: string, dialect: InputDialect = 'spark') =>
+  post<{ files: string[] }>('/api/export/input', { dbml, dialect });

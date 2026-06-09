@@ -1,4 +1,4 @@
-import { lineOfColumn, lineOfRef, lineOfTable } from './lineLocate';
+import { lineOfColumn, lineOfGroupMember, lineOfRef, lineOfTable } from './lineLocate';
 import type { ParseResult } from './parse';
 
 export type ModelIssue = {
@@ -17,6 +17,21 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
 
   const issues: ModelIssue[] = [];
   const tableIds = new Set(parsed.tables.map((t) => t.id));
+  const hasTable = (id: string) =>
+    tableIds.has(id) ||
+    parsed.tables.some((t) => t.id === id || t.name === id.split('.').pop());
+
+  for (const lg of parsed.layerGroups) {
+    for (const member of lg.tables) {
+      if (hasTable(member)) continue;
+      issues.push({
+        severity: 'error',
+        message: `LayerGroup "${lg.name}": tabela inexistente "${member}"`,
+        tableId: member,
+        line: dbml ? lineOfGroupMember(dbml, member) : undefined,
+      });
+    }
+  }
   const colsByTable = new Map(
     parsed.tables.map((t) => [t.id, new Set(t.columns.map((c) => c.name))] as const),
   );

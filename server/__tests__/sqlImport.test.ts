@@ -134,6 +134,57 @@ describe('sqlToModel composite PK', () => {
   });
 });
 
+describe('sqlToModel lineage L1 @origen', () => {
+  it('extrai @origen simples e múltiplas origens', () => {
+    const m = sqlToModel(`
+CREATE TABLE raw.a (id BIGINT, PRIMARY KEY (id)) USING DELTA;
+CREATE TABLE raw.b (id BIGINT, PRIMARY KEY (id)) USING DELTA;
+-- @origen: raw.a
+-- @origem: raw.b
+CREATE TABLE silver.f (id BIGINT, PRIMARY KEY (id)) USING DELTA;
+`);
+    const entry = m.lineage?.find((l) => l.target === 'silver.f');
+    expect(entry?.sources.sort()).toEqual(['raw.a', 'raw.b']);
+  });
+});
+
+describe('sqlToModel lineage L2 @map inline', () => {
+  it('extrai @map inline com note/ref e alias @mapeamento', () => {
+    const m = sqlToModel(`
+CREATE TABLE raw.src (
+  id BIGINT,
+  nome STRING,
+  PRIMARY KEY (id)
+) USING DELTA;
+-- @origen: raw.src
+CREATE TABLE silver.tgt (
+  cod BIGINT, -- @map <- raw.src.id
+  nom STRING, -- @mapeamento <- raw.src.nome [note: 'upper', ref: 'jobs/tgt.sql']
+  PRIMARY KEY (cod)
+) USING DELTA;
+`);
+    expect(m.lineage?.[0]).toEqual({ target: 'silver.tgt', sources: ['raw.src'] });
+    expect(m.lineageFields).toHaveLength(2);
+    const nom = m.lineageFields?.find((f) => f.targetColumn === 'nom');
+    expect(nom).toMatchObject({
+      sourceTable: 'raw.src',
+      sourceColumn: 'nome',
+      note: 'upper',
+      ref: 'jobs/tgt.sql',
+    });
+  });
+
+  it('avisa quando origem @map não existe', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.t (
+  x BIGINT, -- @map <- missing.tbl.col
+  PRIMARY KEY (x)
+) USING DELTA;
+`);
+    expect(m.warnings?.some((w) => /@map.*missing\.tbl/i.test(w))).toBe(true);
+  });
+});
+
 describe('demo_lakehouse.sql', () => {
   it('não gera refs inválidas nem quebra o parse do DBML', () => {
     const sql = readFileSync(join(process.cwd(), 'examples/input/demo_lakehouse.sql'), 'utf8');
@@ -144,9 +195,14 @@ describe('demo_lakehouse.sql', () => {
       (r) => r.from.table === 'raw.orders' && r.from.column === 'customer_id',
     );
     expect(ordersFk?.to.table).toBe('raw.customers');
+    expect(m.lineage?.some((l) => l.target === 'silver.dim_customer')).toBe(true);
+    expect(m.lineageFields?.length).toBeGreaterThan(5);
     const dbml = modelToDbml(m);
+    expect(dbml).toContain('Lineage {');
+    expect(dbml).toContain('LineageFields {');
     const parsed = parseDbml(dbml);
     expect(parsed.error).toBeUndefined();
+    expect(parsed.lineage.length).toBeGreaterThan(0);
   });
 });
 

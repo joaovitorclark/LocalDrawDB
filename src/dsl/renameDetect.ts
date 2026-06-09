@@ -1,4 +1,5 @@
 import { splitDbmlBlocks } from './blocks';
+import { isCompleteTableId } from './edit';
 
 const stripQuotes = (s: string) => s.replace(/["`]/g, '').trim();
 
@@ -63,6 +64,7 @@ export function detectRenames(prevDbml: string, nextDbml: string): DetectedRenam
     const nextFields = tableFields(nb.text);
 
     if (oldId !== newId) {
+      if (!isCompleteTableId(oldId) || !isCompleteTableId(newId)) continue;
       const prevNames = prevFields.map((f) => f.name);
       const nextNames = nextFields.map((f) => f.name);
       if (columnOverlap(prevNames, nextNames) >= 0.8) {

@@ -1,7 +1,28 @@
 // Parse de DBML no browser (@dbml/core) -> nós/arestas para o React Flow.
 import { Parser } from '@dbml/core';
-import { splitDbmlBlocks } from './blocks';
-import { parseRecords, type ParsedRecords } from './records';
+import {
+  extractRecords,
+  parseLayerGroup,
+  parseLineageBlock,
+  parseLineageFieldsBlock,
+  splitTableColumn,
+  type ParsedFieldLineage,
+  type ParsedLayerGroup,
+  type ParsedLineage,
+} from './dbmlClean';
+import type { ParsedRecords } from './records';
+import { resolveParseErrorLine } from './lineLocate';
+
+export {
+  extractRecords,
+  parseLayerGroup,
+  parseLineageBlock,
+  parseLineageFieldsBlock,
+  splitTableColumn,
+  type ParsedFieldLineage,
+  type ParsedLayerGroup,
+  type ParsedLineage,
+} from './dbmlClean';
 
 export type Cardinality = '*' | '1';
 export type ColumnView = { name: string; type: string; pk: boolean; notNull: boolean; note?: string };
@@ -24,16 +45,6 @@ export type RefView = {
   fromRel: Cardinality; // cardinalidade do lado source
   toRel: Cardinality; // cardinalidade do lado target
 };
-export type ParsedLayerGroup = { id: string; name: string; color?: string; tables: string[] };
-export type ParsedLineage = { target: string; sources: string[] };
-export type ParsedFieldLineage = {
-  sourceTable: string;
-  sourceColumn: string;
-  targetTable: string;
-  targetColumn: string;
-  note?: string;
-  ref?: string;
-};
 export type ParseResult = {
   tables: TableView[];
   refs: RefView[];
@@ -46,142 +57,44 @@ export type ParseResult = {
   errorLine?: number;
 };
 
-/** Faz parse de um bloco `LayerGroup nome [color: #hex] { ... }`. */
-export function parseLayerGroup(block: string): ParsedLayerGroup | null {
-  const h = /LayerGroup\s+("?[^"\s[{]+"?)\s*(?:\[([^\]]*)\])?\s*\{/i.exec(block);
-  if (!h) return null;
-  const name = h[1].replace(/"/g, '');
-  const color = /color\s*:\s*(#?[\w]+)/i.exec(h[2] || '')?.[1];
-  const body = block.slice(h.index + h[0].length);
-  const end = body.lastIndexOf('}');
-  const inner = end >= 0 ? body.slice(0, end) : body;
-  const tables = inner.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
-  return { id: name.toLowerCase(), name, color, tables };
-}
-
-/** Faz parse de um bloco `Lineage { target < source1, source2 }`. */
-export function parseLineageBlock(block: string): ParsedLineage[] {
-  const h = /Lineage\s*\{/i.exec(block);
-  if (!h) return [];
-  const body = block.slice(h.index + h[0].length);
-  const end = body.lastIndexOf('}');
-  const inner = end >= 0 ? body.slice(0, end) : body;
-  const out: ParsedLineage[] = [];
-  for (const rawLine of inner.split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('//')) continue;
-    const m = /^([^\s<]+)\s*<\s*(.+)$/.exec(line);
-    if (!m) continue;
-    const target = m[1].trim();
-    const sources = m[2].split(',').map((s) => s.trim()).filter(Boolean);
-    if (target && sources.length) out.push({ target, sources });
-  }
-  return out;
-}
-
-/** `schema.tabela.coluna` → { table, column }. */
-export function splitTableColumn(qualified: string): { table: string; column: string } | null {
-  const q = qualified.trim().replace(/"/g, '');
-  const last = q.lastIndexOf('.');
-  if (last <= 0) return null;
-  const table = q.slice(0, last);
-  const column = q.slice(last + 1);
-  if (!table || !column) return null;
-  return { table, column };
-}
-
-function parseFieldLineageSettings(bracket: string | undefined): { note?: string; ref?: string } {
-  if (!bracket?.trim()) return {};
-  const note = /note\s*:\s*'([^']*)'/i.exec(bracket)?.[1];
-  const ref = /ref\s*:\s*'([^']*)'/i.exec(bracket)?.[1];
-  return { note, ref };
-}
-
-/** Parse de `LineageFields { target.tbl.col < source.tbl.col [note: '...', ref: '...'] }`. */
-export function parseLineageFieldsBlock(block: string): ParsedFieldLineage[] {
-  const h = /LineageFields\s*\{/i.exec(block);
-  if (!h) return [];
-  const body = block.slice(h.index + h[0].length);
-  const end = body.lastIndexOf('}');
-  const inner = end >= 0 ? body.slice(0, end) : body;
-  const out: ParsedFieldLineage[] = [];
-  for (const rawLine of inner.split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('//')) continue;
-    const m = /^([^\s<]+)\s*<\s*([^\s\[]+)(?:\s*\[([^\]]*)\])?\s*$/.exec(line);
-    if (!m) continue;
-    const target = splitTableColumn(m[1].trim());
-    const source = splitTableColumn(m[2].trim());
-    if (!target || !source) continue;
-    const meta = parseFieldLineageSettings(m[3]);
-    out.push({
-      targetTable: target.table,
-      targetColumn: target.column,
-      sourceTable: source.table,
-      sourceColumn: source.column,
-      ...meta,
-    });
-  }
-  return out;
-}
-
-/** Remove blocos extras (records, LayerGroup, Lineage, LineageFields) antes do @dbml/core. */
-export function extractRecords(src: string): {
-  clean: string;
-  records: ParsedRecords[];
-  layerGroups: ParsedLayerGroup[];
-  lineage: ParsedLineage[];
-  lineageFields: ParsedFieldLineage[];
-} {
-  const blocks = splitDbmlBlocks(src);
-  const records: ParsedRecords[] = [];
-  const layerGroups: ParsedLayerGroup[] = [];
-  const lineage: ParsedLineage[] = [];
-  const lineageFields: ParsedFieldLineage[] = [];
-  const keep: string[] = [];
-  for (const b of blocks) {
-    if (b.type === 'records') {
-      const pr = parseRecords(b.text);
-      if (pr) records.push(pr);
-    } else if (b.type === 'layerGroup') {
-      const lg = parseLayerGroup(b.text);
-      if (lg) layerGroups.push(lg);
-    } else if (b.type === 'lineage') {
-      lineage.push(...parseLineageBlock(b.text));
-    } else if (b.type === 'lineageFields') {
-      lineageFields.push(...parseLineageFieldsBlock(b.text));
-    } else if (b.type !== 'blank') {
-      keep.push(b.text);
-    }
-  }
-  return { clean: keep.join('\n'), records, layerGroups, lineage, lineageFields };
-}
-
 const qualified = (schema: string | undefined, name: string) =>
   schema && schema !== 'public' ? `${schema}.${name}` : name;
 
-/** Extrai mensagem e linha do CompilerError do @dbml/core. */
-function formatParseError(e: any): { message: string; line?: number } {
+/** Extrai mensagem e linha do CompilerError do @dbml/core (linha ainda no buffer clean). */
+function formatParseError(e: any): { rawMessage: string; cleanLine0?: number } {
   const diag = e?.diags?.[0];
   if (diag?.message) {
     const line1 = diag.location?.start?.line as number | undefined;
-    const line0 = line1 != null ? line1 - 1 : undefined;
-    const message = line1 ? `Linha ${line1}: ${diag.message}` : diag.message;
-    return { message, line: line0 };
+    const cleanLine0 = line1 != null ? line1 - 1 : undefined;
+    return { rawMessage: diag.message, cleanLine0 };
   }
-  return { message: e?.message ?? 'DBML inválido' };
+  return { rawMessage: e?.message ?? 'DBML inválido' };
+}
+
+function buildParseError(
+  dbml: string,
+  rawMessage: string,
+  cleanLine0: number | undefined,
+  mapCleanLine: (n: number) => number,
+): { message: string; line?: number } {
+  const line0 = resolveParseErrorLine(dbml, rawMessage, cleanLine0, mapCleanLine);
+  const line1 = line0 != null ? line0 + 1 : undefined;
+  const message = line1 ? `Linha ${line1}: ${rawMessage}` : rawMessage;
+  return { message, line: line0 };
 }
 
 export function parseDbml(dbml: string): ParseResult {
   if (!dbml.trim()) {
     return { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] };
   }
-  const { clean, records, layerGroups, lineage, lineageFields } = extractRecords(dbml);
+  const { clean, records, layerGroups, lineage, lineageFields, mapCleanLineToOriginal } =
+    extractRecords(dbml);
   let db: any;
   try {
     db = Parser.parse(clean, 'dbml');
   } catch (e: any) {
-    const { message, line } = formatParseError(e);
+    const { rawMessage, cleanLine0 } = formatParseError(e);
+    const { message, line } = buildParseError(dbml, rawMessage, cleanLine0, mapCleanLineToOriginal);
     return {
       tables: [], refs: [], records, layerGroups, lineage, lineageFields, error: message, errorLine: line,
     };

@@ -29,6 +29,35 @@ Ref: silver.pedido.num_pedido > bronze.origem.id
     const detected = detectRenames(prev, next);
     expect(detected.some((d) => d.kind === 'column' && d.oldCol === 'num_pedido')).toBe(true);
   });
+
+  it('ignora cabeçalho incompleto ao digitar Table schema.', () => {
+    const prev = `Table silver.dim_cbo {
+  id bigint [pk]
+  nome string
+}
+Table silver.dim_cnes {
+  id bigint [pk]
+}
+`;
+    const next = `Table silver. {
+  id bigint [pk]
+  nome string
+}
+Table silver.dim_cnes {
+  id bigint [pk]
+}
+`;
+    expect(detectRenames(prev, next).filter((d) => d.kind === 'table')).toHaveLength(0);
+  });
+
+  it('ignora nova tabela incompleta no final do arquivo', () => {
+    const prev = `Table silver.dim_cbo {
+  id bigint [pk]
+}
+`;
+    const next = `${prev}\nTable silver.\n`;
+    expect(detectRenames(prev, next).filter((d) => d.kind === 'table')).toHaveLength(0);
+  });
 });
 
 describe('renameColumnAllRefs', () => {
@@ -67,5 +96,34 @@ Ref: loja.b.id > loja.a.id
     expect(out).toContain('Table loja.cliente');
     expect(out).toContain('loja.cliente.id');
     expect(out).toContain('loja.cliente');
+  });
+
+  it('não substitui prefixo schema ao renomear silver → silver.', () => {
+    const src = `Table silver.dim_cbo {
+  id bigint [pk]
+}
+Table silver.dim_cnes {
+  id bigint [pk]
+}
+`;
+    const out = renameTable(src, 'silver', 'silver.');
+    expect(out).toBe(src);
+    expect(out).not.toContain('""');
+  });
+
+  it('renomeia só o token qualificado completo', () => {
+    const src = `Table silver.dim_cbo {
+  id bigint [pk]
+}
+Table silver.dim_cnes {
+  id bigint [pk]
+}
+Ref: silver.dim_cnes.id > silver.dim_cbo.id
+`;
+    const out = renameTable(src, 'silver.dim_cbo', 'silver.dim_cliente');
+    expect(out).toContain('Table silver.dim_cliente');
+    expect(out).toContain('silver.dim_cliente.id');
+    expect(out).toContain('Table silver.dim_cnes');
+    expect(out).not.toContain('dim_cbo');
   });
 });
