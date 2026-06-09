@@ -1,6 +1,6 @@
 // Gestão de nós do canvas (padrão Structura): separa estrutura (parsed) de layout
 // (posições, propriedade do React Flow). Evita o snap-back ao arrastar.
-import { useEffect, type MutableRefObject } from 'react';
+import { useEffect, useMemo, type MutableRefObject } from 'react';
 import type { Node } from 'reactflow';
 import type { ParseResult, TableView } from '../../dsl/parse';
 import { nodeHeight, nodeWidth } from '../nodeMetrics';
@@ -51,8 +51,10 @@ function groupNodes(
       type: 'group',
       position: { x: minX - pad, y: minY - pad - 16 },
       data: { label: name, collapsed, count: boxes.length, onToggle: () => opts.onToggleGroup(name) },
-      draggable: true, // mover o grupo inteiro
+      draggable: true,
+      dragHandle: '.group-node__drag-handle',
       selectable: false,
+      className: 'react-flow__node-group-shell',
       zIndex: -1,
       style: collapsed
         ? { width: 240, height: 46 }
@@ -74,7 +76,11 @@ export function useCanvasNodes(
   relatedRef: MutableRefObject<Set<string> | null>,
   opts: NodeOpts,
 ): void {
-  const lineageMode = useInteraction((s) => s.lineageMode);
+  const selectedTableIds = useInteraction((s) => s.selectedTableIds);
+  const selectedSet = useMemo(
+    () => new Set(selectedTableIds),
+    [selectedTableIds],
+  );
   useEffect(() => {
     setNodes((prev) => {
       const prevPos = new Map(
@@ -88,13 +94,14 @@ export function useCanvasNodes(
         type: 'table',
         position: posOf(t, i),
         data: t,
+        selected: selectedSet.has(t.id),
         hidden: opts.hiddenTables.has(t.id),
         style: opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : undefined,
         className: classOf(t.id, relatedRef.current),
       }));
-      return [...groupNodes(parsed.tables, posOf, opts, lineageMode), ...tableNodes];
+      return [...groupNodes(parsed.tables, posOf, opts, false), ...tableNodes];
     });
-  }, [parsed.tables, positions, setNodes, relatedRef, opts, lineageMode]);
+  }, [parsed.tables, positions, setNodes, relatedRef, opts, selectedSet]);
 }
 
 /** Atualiza apenas o `className` (highlight/dim de hover) sem mexer na posição. */

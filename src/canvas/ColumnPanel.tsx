@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useInteraction } from '../store/interaction';
 import { getColumnSettings, setColumnSetting, type ColSettings } from '../dsl/edit';
 import type { TableView } from '../dsl/parse';
@@ -7,19 +7,27 @@ type Props = {
   dbml: string;
   tables: TableView[];
   onApply: (next: string) => void;
+  onRenameColumn?: (table: string, oldName: string, newName: string) => void;
+  onGoToColumn?: (table: string, column: string) => void;
 };
 
-export function ColumnPanel({ dbml, tables, onApply }: Props) {
+export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColumn }: Props) {
   const sel = useInteraction((s) => s.selectedColumn);
   const selectColumn = useInteraction((s) => s.selectColumn);
-  if (!sel) return null;
+  const [nameDraft, setNameDraft] = useState('');
 
-  const table = tables.find((t) => t.id === sel.table);
-  const s = getColumnSettings(dbml, sel.table, sel.column);
-  const apply = (patch: ColSettings) =>
-    onApply(setColumnSetting(dbml, sel.table, sel.column, { ...s, ...patch }));
+  const table = useMemo(
+    () => (sel ? tables.find((t) => t.id === sel.table) : undefined),
+    [tables, sel],
+  );
+
+  const settings = useMemo(
+    () => (sel ? getColumnSettings(dbml, sel.table, sel.column) : null),
+    [dbml, sel],
+  );
 
   const refOptions = useMemo(() => {
+    if (!sel) return [];
     const out: { value: string; label: string }[] = [];
     for (const t of tables) {
       for (const c of t.columns) {
@@ -28,15 +36,29 @@ export function ColumnPanel({ dbml, tables, onApply }: Props) {
       }
     }
     return out.sort((a, b) => a.label.localeCompare(b.label));
-  }, [tables, sel.table, sel.column]);
+  }, [tables, sel]);
 
   const compositeHint = useMemo(() => {
-    const groups = table?.compositePks?.filter((g) => g.includes(sel.column) && g.length > 1);
+    if (!sel || !table) return null;
+    const groups = table.compositePks?.filter((g) => g.includes(sel.column) && g.length > 1);
     if (!groups?.length) return null;
     return groups.map((g) => `(${g.join(', ')})`).join(', ');
-  }, [table, sel.column]);
+  }, [table, sel]);
 
-  const refValue = s.refTarget ?? '';
+  if (!sel || !settings) return null;
+
+  const apply = (patch: ColSettings) =>
+    onApply(setColumnSetting(dbml, sel.table, sel.column, { ...settings, ...patch }));
+
+  const commitRename = () => {
+    const v = nameDraft.trim();
+    if (!v || v === sel.column || !onRenameColumn) return;
+    onRenameColumn(sel.table, sel.column, v);
+    selectColumn({ table: sel.table, column: v });
+    setNameDraft(v);
+  };
+
+  const refValue = settings.refTarget ?? '';
 
   return (
     <div className="column-panel">
@@ -50,8 +72,29 @@ export function ColumnPanel({ dbml, tables, onApply }: Props) {
       {compositeHint && (
         <p className="column-panel__hint">PK composta: {compositeHint}</p>
       )}
+      <label className="column-panel__field">
+        Nome
+        <input
+          type="text"
+          value={nameDraft || sel.column}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitRename();
+          }}
+        />
+      </label>
+      {onGoToColumn && (
+        <button
+          type="button"
+          className="column-panel__dbml-btn"
+          onClick={() => onGoToColumn(sel.table, sel.column)}
+        >
+          Editar no DBML
+        </button>
+      )}
       <label className="column-panel__row">
-        <input type="checkbox" checked={!!s.pk} onChange={(e) => apply({ pk: e.target.checked })} />
+        <input type="checkbox" checked={!!settings.pk} onChange={(e) => apply({ pk: e.target.checked })} />
         Primary key
       </label>
       <label className="column-panel__field">
@@ -71,7 +114,7 @@ export function ColumnPanel({ dbml, tables, onApply }: Props) {
       <label className="column-panel__row">
         <input
           type="checkbox"
-          checked={!!s.notNull}
+          checked={!!settings.notNull}
           onChange={(e) => apply({ notNull: e.target.checked })}
         />
         Not null
@@ -80,7 +123,7 @@ export function ColumnPanel({ dbml, tables, onApply }: Props) {
         Note
         <input
           type="text"
-          value={s.note ?? ''}
+          value={settings.note ?? ''}
           onChange={(e) => apply({ note: e.target.value })}
           placeholder="descrição"
         />
@@ -89,7 +132,7 @@ export function ColumnPanel({ dbml, tables, onApply }: Props) {
         Default
         <input
           type="text"
-          value={s.default ?? ''}
+          value={settings.default ?? ''}
           onChange={(e) => apply({ default: e.target.value })}
           placeholder="ex.: 0 ou 'x'"
         />

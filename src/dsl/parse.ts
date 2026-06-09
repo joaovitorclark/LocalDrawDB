@@ -26,13 +26,24 @@ export type RefView = {
 };
 export type ParsedLayerGroup = { id: string; name: string; color?: string; tables: string[] };
 export type ParsedLineage = { target: string; sources: string[] };
+export type ParsedFieldLineage = {
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+  note?: string;
+  ref?: string;
+};
 export type ParseResult = {
   tables: TableView[];
   refs: RefView[];
   records: ParsedRecords[];
   layerGroups: ParsedLayerGroup[];
   lineage: ParsedLineage[];
+  lineageFields: ParsedFieldLineage[];
   error?: string;
+  /** Linha 0-based no buffer do editor (quando disponível). */
+  errorLine?: number;
 };
 
 /** Faz parse de um bloco `LayerGroup nome [color: #hex] { ... }`. */
@@ -68,17 +79,65 @@ export function parseLineageBlock(block: string): ParsedLineage[] {
   return out;
 }
 
-/** Remove blocos `records`, `LayerGroup` e `Lineage` (não suportados pelo parser) e os devolve à parte. */
+/** `schema.tabela.coluna` → { table, column }. */
+export function splitTableColumn(qualified: string): { table: string; column: string } | null {
+  const q = qualified.trim().replace(/"/g, '');
+  const last = q.lastIndexOf('.');
+  if (last <= 0) return null;
+  const table = q.slice(0, last);
+  const column = q.slice(last + 1);
+  if (!table || !column) return null;
+  return { table, column };
+}
+
+function parseFieldLineageSettings(bracket: string | undefined): { note?: string; ref?: string } {
+  if (!bracket?.trim()) return {};
+  const note = /note\s*:\s*'([^']*)'/i.exec(bracket)?.[1];
+  const ref = /ref\s*:\s*'([^']*)'/i.exec(bracket)?.[1];
+  return { note, ref };
+}
+
+/** Parse de `LineageFields { target.tbl.col < source.tbl.col [note: '...', ref: '...'] }`. */
+export function parseLineageFieldsBlock(block: string): ParsedFieldLineage[] {
+  const h = /LineageFields\s*\{/i.exec(block);
+  if (!h) return [];
+  const body = block.slice(h.index + h[0].length);
+  const end = body.lastIndexOf('}');
+  const inner = end >= 0 ? body.slice(0, end) : body;
+  const out: ParsedFieldLineage[] = [];
+  for (const rawLine of inner.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('//')) continue;
+    const m = /^([^\s<]+)\s*<\s*([^\s\[]+)(?:\s*\[([^\]]*)\])?\s*$/.exec(line);
+    if (!m) continue;
+    const target = splitTableColumn(m[1].trim());
+    const source = splitTableColumn(m[2].trim());
+    if (!target || !source) continue;
+    const meta = parseFieldLineageSettings(m[3]);
+    out.push({
+      targetTable: target.table,
+      targetColumn: target.column,
+      sourceTable: source.table,
+      sourceColumn: source.column,
+      ...meta,
+    });
+  }
+  return out;
+}
+
+/** Remove blocos extras (records, LayerGroup, Lineage, LineageFields) antes do @dbml/core. */
 export function extractRecords(src: string): {
   clean: string;
   records: ParsedRecords[];
   layerGroups: ParsedLayerGroup[];
   lineage: ParsedLineage[];
+  lineageFields: ParsedFieldLineage[];
 } {
   const blocks = splitDbmlBlocks(src);
   const records: ParsedRecords[] = [];
   const layerGroups: ParsedLayerGroup[] = [];
   const lineage: ParsedLineage[] = [];
+  const lineageFields: ParsedFieldLineage[] = [];
   const keep: string[] = [];
   for (const b of blocks) {
     if (b.type === 'records') {
@@ -89,35 +148,43 @@ export function extractRecords(src: string): {
       if (lg) layerGroups.push(lg);
     } else if (b.type === 'lineage') {
       lineage.push(...parseLineageBlock(b.text));
+    } else if (b.type === 'lineageFields') {
+      lineageFields.push(...parseLineageFieldsBlock(b.text));
     } else if (b.type !== 'blank') {
       keep.push(b.text);
     }
   }
-  return { clean: keep.join('\n'), records, layerGroups, lineage };
+  return { clean: keep.join('\n'), records, layerGroups, lineage, lineageFields };
 }
 
 const qualified = (schema: string | undefined, name: string) =>
   schema && schema !== 'public' ? `${schema}.${name}` : name;
 
-/** Extrai uma mensagem legível (com linha) do CompilerError do @dbml/core. */
-function formatParseError(e: any): string {
+/** Extrai mensagem e linha do CompilerError do @dbml/core. */
+function formatParseError(e: any): { message: string; line?: number } {
   const diag = e?.diags?.[0];
   if (diag?.message) {
-    const line = diag.location?.start?.line;
-    return line ? `Linha ${line}: ${diag.message}` : diag.message;
+    const line1 = diag.location?.start?.line as number | undefined;
+    const line0 = line1 != null ? line1 - 1 : undefined;
+    const message = line1 ? `Linha ${line1}: ${diag.message}` : diag.message;
+    return { message, line: line0 };
   }
-  return e?.message ?? 'DBML inválido';
+  return { message: e?.message ?? 'DBML inválido' };
 }
 
 export function parseDbml(dbml: string): ParseResult {
-  if (!dbml.trim()) return { tables: [], refs: [], records: [], layerGroups: [], lineage: [] };
-  // Records/LayerGroup/Lineage quebram o @dbml/core: extraímos antes.
-  const { clean, records, layerGroups, lineage } = extractRecords(dbml);
+  if (!dbml.trim()) {
+    return { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] };
+  }
+  const { clean, records, layerGroups, lineage, lineageFields } = extractRecords(dbml);
   let db: any;
   try {
     db = Parser.parse(clean, 'dbml');
   } catch (e: any) {
-    return { tables: [], refs: [], records, layerGroups, lineage, error: formatParseError(e) };
+    const { message, line } = formatParseError(e);
+    return {
+      tables: [], refs: [], records, layerGroups, lineage, lineageFields, error: message, errorLine: line,
+    };
   }
 
   const tables: TableView[] = [];
@@ -179,7 +246,7 @@ export function parseDbml(dbml: string): ParseResult {
     if (t && !t.note) t.note = rec.note;
   }
 
-  return { tables, refs, records, layerGroups, lineage };
+  return { tables, refs, records, layerGroups, lineage, lineageFields };
 }
 
 /** Snippet de colunas de metadados padrão do lakehouse. */

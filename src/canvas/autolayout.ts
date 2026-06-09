@@ -5,11 +5,63 @@ import type { Positions } from './hooks/useCanvasNodes';
 import { nodeHeight, nodeWidth, type NodeMetricsOpts } from './nodeMetrics';
 
 const MARGIN = 20;
+const MARGIN_WIDE = 16;
 const COMPONENT_GAP = 96;
+const COMPONENT_GAP_WIDE = 64;
 const CLUSTER_PAD_Y = 40;
 const GROUP_EXTRA_SEP = 24;
 
+type LayoutProfile = 'default' | 'wide';
 type Rect = { id: string; x: number; y: number; w: number; h: number };
+
+function clusterProfile(clusterKey: string): LayoutProfile {
+  if (clusterKey === 'layer:bronze') return 'wide';
+  return 'default';
+}
+
+/** Mais colunas que linhas — preferência horizontal em clusters esparsos (ex.: bronze). */
+export function gridCols(n: number, profile: LayoutProfile = 'default'): number {
+  if (n <= 1) return 1;
+  if (profile === 'wide') return Math.max(1, Math.ceil(Math.sqrt(n * 2.5)));
+  return Math.max(1, Math.ceil(Math.sqrt(n)));
+}
+
+function cellMargin(profile: LayoutProfile): number {
+  return profile === 'wide' ? MARGIN_WIDE : MARGIN;
+}
+
+const WIDE_ROWS_PER_COL = 3;
+/** Quebra coluna quando a próxima tabela é muito mais alta que a anterior. */
+const WIDE_HEIGHT_BREAK_RATIO = 1.8;
+
+/** Tamanho visual para ordenação bronze (compacto só mostra título — usa nº de colunas). */
+function layoutVisualSize(t: TableView, metrics: NodeMetricsOpts): number {
+  if (metrics.compact) return t.columns.length;
+  return nodeHeight(t, metrics);
+}
+
+/** Menores primeiro; colunas à esquerda, maiores à direita (empilhadas por coluna). */
+function sortTablesForPack(
+  tables: TableView[],
+  metrics: NodeMetricsOpts,
+  profile: LayoutProfile,
+): TableView[] {
+  const sorted = [...tables];
+  if (profile === 'wide') {
+    sorted.sort((a, b) => {
+      const sa = layoutVisualSize(a, metrics);
+      const sb = layoutVisualSize(b, metrics);
+      if (sa !== sb) return sa - sb;
+      const wa = nodeWidth(a, metrics);
+      const wb = nodeWidth(b, metrics);
+      if (wa !== wb) return wa - wb;
+      return a.id.localeCompare(b.id);
+    });
+    return sorted;
+  }
+  sorted.sort((a, b) => a.id.localeCompare(b.id));
+  return sorted;
+}
 
 function layoutMetrics(compact: boolean): NodeMetricsOpts {
   return { compact, layout: true };
@@ -110,10 +162,11 @@ function countInternalEdges(ids: Set<string>, parsed: ParseResult): number {
 function layoutClusterGrid(
   tables: TableView[],
   metrics: NodeMetricsOpts,
+  profile: LayoutProfile,
   offsetY = 0,
 ): Positions {
-  const sorted = [...tables].sort((a, b) => a.id.localeCompare(b.id));
-  return packSingletonGrid(sorted, metrics, offsetY).positions;
+  const sorted = sortTablesForPack(tables, metrics, profile);
+  return packSingletonGrid(sorted, metrics, offsetY, profile).positions;
 }
 
 function layoutSubset(
@@ -121,12 +174,13 @@ function layoutSubset(
   parsed: ParseResult,
   metrics: NodeMetricsOpts,
   inGroup: boolean,
+  profile: LayoutProfile,
 ): Positions {
   const ids = new Set(tables.map((t) => t.id));
   const edges = countInternalEdges(ids, parsed);
   const sparse = tables.length >= 4 && edges < tables.length * 0.45;
   if (edges === 0 || sparse || (inGroup && tables.length >= 6 && edges < tables.length)) {
-    return layoutClusterGrid(tables, metrics);
+    return layoutClusterGrid(tables, metrics, profile);
   }
 
   const g = new dagre.graphlib.Graph();
@@ -157,16 +211,69 @@ function layoutSubset(
   return out;
 }
 
+/** Bronze: colunas verticais (menores empilhadas à esquerda; gigantes em coluna própria à direita). */
+function packWideColumnMajor(
+  tables: TableView[],
+  metrics: NodeMetricsOpts,
+  offsetY: number,
+  margin: number,
+): { positions: Positions; maxY: number } {
+  const positions: Positions = {};
+  const columns: TableView[][] = [];
+  let current: TableView[] = [];
+
+  for (const t of tables) {
+    if (current.length >= WIDE_ROWS_PER_COL) {
+      columns.push(current);
+      current = [];
+    } else if (current.length > 0) {
+      const prev = current[current.length - 1];
+      const prevH = layoutVisualSize(prev, metrics);
+      const h = layoutVisualSize(t, metrics);
+      if (h > prevH * WIDE_HEIGHT_BREAK_RATIO) {
+        columns.push(current);
+        current = [t];
+        continue;
+      }
+    }
+    current.push(t);
+  }
+  if (current.length) columns.push(current);
+
+  let xAcc = 0;
+  let maxY = offsetY;
+  for (const colTables of columns) {
+    const colWidth =
+      Math.max(...colTables.map((t) => nodeWidth(t, metrics))) + margin;
+    let yAcc = offsetY;
+    for (const t of colTables) {
+      positions[t.id] = { x: xAcc, y: yAcc };
+      yAcc += nodeHeight(t, metrics) + margin;
+      maxY = Math.max(maxY, yAcc - margin);
+    }
+    xAcc += colWidth;
+  }
+
+  return { positions, maxY };
+}
+
 /** Empacota tabelas em grade com colunas/linhas de largura variável. */
 function packSingletonGrid(
   tables: TableView[],
   metrics: NodeMetricsOpts,
   offsetY: number,
+  profile: LayoutProfile = 'default',
 ): { positions: Positions; maxY: number } {
   const positions: Positions = {};
   if (!tables.length) return { positions, maxY: offsetY };
 
-  const cols = Math.max(1, Math.ceil(Math.sqrt(tables.length)));
+  const margin = cellMargin(profile);
+
+  if (profile === 'wide') {
+    return packWideColumnMajor(tables, metrics, offsetY, margin);
+  }
+
+  const cols = gridCols(tables.length, profile);
   const rows = Math.ceil(tables.length / cols);
   const colWidths = new Array<number>(cols).fill(0);
   const rowHeights = new Array<number>(rows).fill(0);
@@ -174,8 +281,8 @@ function packSingletonGrid(
   tables.forEach((t, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    colWidths[col] = Math.max(colWidths[col], nodeWidth(t, metrics) + MARGIN);
-    rowHeights[row] = Math.max(rowHeights[row], nodeHeight(t, metrics) + MARGIN);
+    colWidths[col] = Math.max(colWidths[col], nodeWidth(t, metrics) + margin);
+    rowHeights[row] = Math.max(rowHeights[row], nodeHeight(t, metrics) + margin);
   });
 
   const colX: number[] = [];
@@ -209,10 +316,13 @@ function layoutCluster(
   parsed: ParseResult,
   metrics: NodeMetricsOpts,
   inGroup: boolean,
+  profile: LayoutProfile,
 ): Positions {
   const ids = new Set(tables.map((t) => t.id));
   const components = connectedComponents(ids, parsed);
   const tableById = new Map(tables.map((t) => [t.id, t] as const));
+  const gap = profile === 'wide' ? COMPONENT_GAP_WIDE : COMPONENT_GAP;
+  const margin = cellMargin(profile);
 
   const positions: Positions = {};
   let offsetY = 0;
@@ -226,7 +336,7 @@ function layoutCluster(
     }
 
     const subset = memberIds.map((id) => tableById.get(id)!).filter(Boolean);
-    const local = layoutSubset(subset, parsed, metrics, inGroup);
+    const local = layoutSubset(subset, parsed, metrics, inGroup, profile);
     let maxY = offsetY;
     for (const t of subset) {
       const p = local[t.id];
@@ -234,18 +344,23 @@ function layoutCluster(
       positions[t.id] = { x: p.x, y: p.y + offsetY };
       maxY = Math.max(maxY, p.y + offsetY + nodeHeight(t, metrics));
     }
-    offsetY = maxY + COMPONENT_GAP;
+    offsetY = maxY + gap;
   }
 
   if (singletons.length) {
-    const packed = packSingletonGrid(singletons, metrics, offsetY);
+    const packed = packSingletonGrid(
+      sortTablesForPack(singletons, metrics, profile),
+      metrics,
+      offsetY,
+      profile,
+    );
     Object.assign(positions, packed.positions);
-    offsetY = packed.maxY + COMPONENT_GAP;
+    offsetY = packed.maxY + gap;
   }
 
-  let out = resolveOverlaps(positions, tables, parsed, metrics);
-  if (countOverlaps(toRects(out, tables, metrics), MARGIN) > 0) {
-    out = layoutClusterGrid(tables, metrics);
+  let out = resolveOverlaps(positions, tables, parsed, metrics, margin);
+  if (countOverlaps(toRects(out, tables, metrics), margin) > 0) {
+    out = layoutClusterGrid(tables, metrics, profile);
   }
   return out;
 }
@@ -287,6 +402,7 @@ export function resolveOverlaps(
   tables: TableView[],
   parsed: ParseResult,
   metrics: NodeMetricsOpts,
+  margin = MARGIN,
 ): Positions {
   const ids = new Set(tables.map((t) => t.id));
   const degree = buildDegreeMap(parsed, ids);
@@ -295,24 +411,24 @@ export function resolveOverlaps(
 
   for (let iter = 0; iter < maxIter; iter++) {
     const rects = toRects(pos, tables, metrics);
-    if (countOverlaps(rects, MARGIN) === 0) break;
+    if (countOverlaps(rects, margin) === 0) break;
 
     let moved = false;
     for (let i = 0; i < rects.length; i++) {
       for (let j = i + 1; j < rects.length; j++) {
         const a = rects[i];
         const b = rects[j];
-        if (!rectsOverlap(a, b, MARGIN)) continue;
+        if (!rectsOverlap(a, b, margin)) continue;
 
         const moveA = (degree.get(a.id) ?? 0) <= (degree.get(b.id) ?? 0);
         const moveId = moveA ? a.id : b.id;
         const self = moveA ? a : b;
         const other = moveA ? b : a;
 
-        const gapX = other.x + other.w + MARGIN - self.x;
-        const gapY = other.y + other.h + MARGIN - self.y;
-        const overlapX = self.x + self.w + MARGIN - other.x;
-        const overlapY = self.y + self.h + MARGIN - other.y;
+        const gapX = other.x + other.w + margin - self.x;
+        const gapY = other.y + other.h + margin - self.y;
+        const overlapX = self.x + self.w + margin - other.x;
+        const overlapY = self.y + self.h + margin - other.y;
         const cur = pos[moveId];
         let nx = cur.x;
         let ny = cur.y;
@@ -321,8 +437,8 @@ export function resolveOverlaps(
         if (gapY > 0 && (gapY < gapX || gapX <= 0)) ny += gapY;
         else if (overlapY > 0 && gapY <= 0) ny += overlapY;
         if (nx === cur.x && ny === cur.y) {
-          nx += MARGIN + 1;
-          ny += MARGIN + 1;
+          nx += margin + 1;
+          ny += margin + 1;
         }
         if (nx !== cur.x || ny !== cur.y) {
           pos[moveId] = { x: nx, y: ny };
@@ -354,8 +470,10 @@ export function autolayoutPositions(parsed: ParseResult, compact = false): Posit
   for (const key of sortedKeys) {
     const tables = byCluster.get(key)!;
     const inGroup = key.startsWith('group:');
-    let cluster = layoutCluster(tables, parsed, metrics, inGroup);
-    cluster = resolveOverlaps(cluster, tables, parsed, metrics);
+    const profile = clusterProfile(key);
+    const margin = cellMargin(profile);
+    let cluster = layoutCluster(tables, parsed, metrics, inGroup, profile);
+    cluster = resolveOverlaps(cluster, tables, parsed, metrics, margin);
 
     let clusterMaxX = offsetX;
     for (const t of tables) {

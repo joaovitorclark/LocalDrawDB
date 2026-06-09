@@ -21,6 +21,10 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
   const toggleLineageVisible = useInteraction((s) => s.toggleLineageVisible);
   const lineageMode = useInteraction((s) => s.lineageMode);
   const toggleLineageMode = useInteraction((s) => s.toggleLineageMode);
+  const relationsVisible = useInteraction((s) => s.relationsVisible);
+  const toggleRelationsVisible = useInteraction((s) => s.toggleRelationsVisible);
+  const fieldLineageVisible = useInteraction((s) => s.fieldLineageVisible);
+  const toggleFieldLineageVisible = useInteraction((s) => s.toggleFieldLineageVisible);
 
   const filteredTables = useMemo(() => {
     const q = tableQuery.trim().toLowerCase();
@@ -61,10 +65,33 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
             <input type="checkbox" checked={layerDimMode} onChange={toggleDimMode} />
             Esmaecer (em vez de esconder)
           </label>
+          <div className="layers-panel__sep" />
+          <div className="layers-panel__title">Linhagem</div>
           <label className="layers-panel__row">
             <input type="checkbox" checked={lineageVisible} onChange={toggleLineageVisible} />
             Mostrar linhagem
           </label>
+          <label className="layers-panel__row">
+            <input type="checkbox" checked={relationsVisible} onChange={toggleRelationsVisible} />
+            Mostrar relacionamentos
+          </label>
+          <label className="layers-panel__row">
+            <input type="checkbox" checked={fieldLineageVisible} onChange={toggleFieldLineageVisible} />
+            Mostrar linhagem de campos
+          </label>
+          <button
+            type="button"
+            className={`layers-panel__lineage-btn ${lineageMode ? 'is-active' : ''}`}
+            onClick={toggleLineageMode}
+            title="Editar linhagem nas bordas das tabelas"
+          >
+            {lineageMode ? '● Modo linhagem (ativo)' : '○ Modo linhagem'}
+          </button>
+          {lineageMode && (
+            <p className="layers-panel__hint">
+              Arraste entre os pontos nas bordas. Relacionamentos desligam automaticamente.
+            </p>
+          )}
 
           <div className="layers-panel__sep" />
           <div className="layers-panel__title">Tabelas</div>
@@ -98,20 +125,15 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
               Organizar canvas
             </button>
           )}
+          <p className="layers-panel__hint">
+            {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent)
+              ? 'Cmd+clique ou arraste para selecionar várias tabelas.'
+              : 'Ctrl+clique ou arraste para selecionar várias tabelas.'}
+          </p>
 
-          <div className="layers-panel__sep" />
-          <div className="layers-panel__title">Linhagem</div>
-          <button
-            type="button"
-            className={`layers-panel__lineage-btn ${lineageMode ? 'is-active' : ''}`}
-            onClick={toggleLineageMode}
-            title="Editar linhagem nas bordas das tabelas"
-          >
-            {lineageMode ? '● Modo linhagem (ativo)' : '○ Modo linhagem'}
-          </button>
-          {lineageMode && (
+          {fieldLineageVisible && (
             <p className="layers-panel__hint">
-              Tabelas compactas. Arraste entre os pontos nas bordas. FKs ocultas.
+              Arestas finas só nas tabelas selecionadas. Edite mapeamentos no painel inferior direito.
             </p>
           )}
         </>
