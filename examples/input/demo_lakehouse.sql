@@ -7,7 +7,21 @@
 --   @layer   → LayerGroup no DBML
 --   @group   → TableGroup no DBML
 --   @note    → Note no bloco Records (não no Table)
---   @fk      → Ref no DBML (alternativa a FOREIGN KEY no DDL)
+--   @fk      → Ref no DBML (integridade referencial)
+--   @origen  → Linhagem L1 tabela→tabela (Lineage { } no DBML)
+--   @map     → Linhagem L2 campo→campo inline na coluna (LineageFields { })
+--
+-- Linhagem (lakehouse silver/gold abaixo):
+--   L1: -- @origen: schema.tabela_origem
+--   L2: coluna TIPO, -- @map <- schema.tabela.coluna [note: '...', ref: '...']
+--   (vírgula antes do comentário @map — importante para round-trip no import)
+--
+-- Exemplo mínimo (ver silver.dim_customer mais abaixo):
+--   -- @origen: raw.customers
+--   natural_id BIGINT, -- @map <- raw.customers.id
+--   name STRING,       -- @map <- raw.customers.name
+--
+-- Trecho Oracle (staging.*) no final: @layer/@fk/@note apenas — @origen/@map opcionais.
 --
 -- Também suportado no DDL:
 --   PRIMARY KEY (col) ou PRIMARY KEY (a, b)  → PK / PK composta (indexes)
@@ -85,14 +99,15 @@ VALUES (503, 'SKU-003', 'Modulo Enterprise', 'Software', 150.00, true);
 -- @layer: prata
 -- @group: dimensional
 -- @note: SCD tipo 2 de clientes (surrogate key)
+-- @origen: raw.customers
 -- @fk: natural_id -> raw.customers.id
 CREATE TABLE IF NOT EXISTS silver.dim_customer (
   customer_key BIGINT,
-  natural_id BIGINT,
-  name STRING,
-  email STRING,
-  segment STRING,
-  region STRING,
+  natural_id BIGINT, -- @map <- raw.customers.id
+  name STRING,       -- @map <- raw.customers.name
+  email STRING,      -- @map <- raw.customers.email
+  segment STRING,    -- @map <- raw.customers.segment
+  region STRING,     -- @map <- raw.customers.region
   is_current BOOLEAN,
   valid_from TIMESTAMP,
   valid_to TIMESTAMP,
@@ -107,13 +122,14 @@ VALUES (2, 101, 'Bob Santos', 'bob@loja.com.br', 'B2C', 'Sul', true, '2023-07-15
 -- @layer: prata
 -- @group: dimensional
 -- @note: Dimensão de produto (snapshot)
+-- @origen: raw.products
 -- @fk: sku -> raw.products.sku
 CREATE TABLE IF NOT EXISTS silver.dim_product (
   product_key BIGINT,
-  sku STRING,
-  name STRING,
-  category STRING,
-  price DECIMAL(10,2),
+  sku STRING,       -- @map <- raw.products.sku
+  name STRING,      -- @map <- raw.products.name
+  category STRING,  -- @map <- raw.products.category
+  price DECIMAL(10,2), -- @map <- raw.products.price
   PRIMARY KEY (product_key)
 ) USING DELTA;
 
@@ -125,14 +141,15 @@ VALUES (2, 'SKU-002', 'Gadget Mini', 'Acessorios', 49.90);
 -- @layer: prata
 -- @group: fatos
 -- @note: Fato de pedidos — FK explícitas no DDL (além de @fk acima nas dims)
+-- @origen: raw.orders
 CREATE TABLE IF NOT EXISTS silver.fact_orders (
-  order_id BIGINT,
+  order_id BIGINT,   -- @map <- raw.orders.id
   customer_key BIGINT,
   product_key BIGINT,
-  quantity INT,
-  total DECIMAL(18,2),
+  quantity INT,      -- @map <- raw.orders.quantity
+  total DECIMAL(18,2), -- @map <- raw.orders.total
   order_date DATE,
-  status STRING,
+  status STRING,     -- @map <- raw.orders.status
   PRIMARY KEY (order_id),
   FOREIGN KEY (customer_key) REFERENCES silver.dim_customer (customer_key),
   FOREIGN KEY (product_key) REFERENCES silver.dim_product (product_key)
@@ -148,11 +165,12 @@ VALUES (2, 2, 2, 1, 49.90, '2024-01-16', 'shipped');
 -- @layer: ouro
 -- @group: reports
 -- @note: Receita mensal por região e segmento (chave composta period + region)
+-- @origen: silver.fact_orders
 CREATE TABLE IF NOT EXISTS gold.report_revenue (
   period DATE,
   region STRING,
   segment STRING,
-  total_revenue DECIMAL(18,2),
+  total_revenue DECIMAL(18,2), -- @map <- silver.fact_orders.total [note: 'SUM(total) por periodo/regiao']
   order_count INT,
   avg_ticket DECIMAL(10,2),
   PRIMARY KEY (period, region)

@@ -1,6 +1,7 @@
 // Mutações de texto do DBML ancoradas no bloco da tabela (via splitDbmlBlocks).
 // Princípio: nomes de coluna são únicos numa tabela -> localização robusta por nome.
 import { splitDbmlBlocks } from './blocks';
+import { splitTableColumn } from './dbmlClean';
 import { dbmlIdent } from './parse';
 
 const stripQuotes = (s: string) => s.replace(/["`]/g, '').trim();
@@ -184,15 +185,36 @@ export function renameColumnAllRefs(
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** Nome qualificado completo (não aceita `schema.` ou segmentos vazios). */
+export function isCompleteTableId(id: string): boolean {
+  const s = stripQuotes(id);
+  if (!s || s.endsWith('.') || s.startsWith('.')) return false;
+  if (/\.\./.test(s)) return false;
+  const parts = s.split('.');
+  return parts.every((p) => /^[A-Za-z_][\w]*$/.test(p));
+}
+
+/** Regex que casa só o identificador completo da tabela (nunca prefixo schema). */
+function tableIdReplaceRegex(old: string): RegExp {
+  const escaped = escapeRegex(old);
+  if (old.includes('.')) {
+    // Qualificado: ok antes de `.coluna` (Ref) ou fim do token (Table, TableGroup).
+    return new RegExp(`(?<![\\w.])${escaped}(?=\\.[A-Za-z_][\\w]*|(?![\\w.]))`, 'g');
+  }
+  // Sem ponto: não pode ser seguido de `.` (evita silver → silver.dim_x).
+  return new RegExp(`(?<![\\w.])${escaped}(?![\\w.])`, 'g');
+}
+
 /**
  * Renomeia uma tabela em todo o documento: cabeçalho, refs e membros de TableGroup.
- * Casa o nome qualificado como token (não pega prefixos de nomes maiores).
+ * Casa o token qualificado inteiro — nunca substitui só o prefixo schema (ex.: silver em silver.dim_x).
  */
 export function renameTable(src: string, tableId: string, newName: string): string {
   const old = stripQuotes(tableId);
-  if (!old || !newName.trim() || old === stripQuotes(newName)) return src;
-  const re = new RegExp(`(?<![\\w.])${escapeRegex(old)}(?![\\w])`, 'g');
-  return src.replace(re, dbmlIdent(newName.trim()));
+  const neu = stripQuotes(newName.trim());
+  if (!old || !neu || old === neu) return src;
+  if (!isCompleteTableId(old) || !isCompleteTableId(neu)) return src;
+  return src.replace(tableIdReplaceRegex(old), dbmlIdent(neu));
 }
 
 export function addColumn(src: string, table: string, name: string, type = 'string'): string {
@@ -384,7 +406,7 @@ export function updateFieldLineageMeta(
   );
 }
 
-/** Remove o(s) bloco(s) `Ref` que casam o par (qualquer direção). Não toca nos outros. */
+/** Remove bloco `Ref` ou FK inline `[ref: > …]` do par indicado. */
 export function removeRef(
   src: string,
   fromTbl: string,
@@ -404,8 +426,130 @@ export function removeRef(
     }
     return true;
   });
-  if (!removed) return src;
-  return kept.map((b) => b.text).join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  if (removed) {
+    return kept.map((bl) => bl.text).join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+
+  const tryClearInline = (table: string, column: string, expectedTarget: string): string | null => {
+    const settings = getColumnSettings(src, table, column);
+    if (!settings.refTarget) return null;
+    if (stripQuotes(settings.refTarget).toLowerCase() !== stripQuotes(expectedTarget).toLowerCase()) {
+      return null;
+    }
+    return setColumnSetting(src, table, column, { ...settings, refTarget: null });
+  };
+
+  const cleared = tryClearInline(fromTbl, fromCol, b) ?? tryClearInline(toTbl, toCol, a);
+  return cleared ?? src;
+}
+
+function tableTokenInText(text: string, tableId: string): boolean {
+  const bare = text.replace(/["`]/g, '');
+  const t = stripQuotes(tableId);
+  const re = new RegExp(`(?<![\\w.])${escapeRegex(t)}(?![\\w])`, 'i');
+  return re.test(bare);
+}
+
+function pruneGroupMembers(block: string, tableId: string): string {
+  return block
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim();
+      if (!t || /^(TableGroup|LayerGroup)\b/i.test(t) || t === '}') return true;
+      return !tableTokenInText(t, tableId);
+    })
+    .join('\n');
+}
+
+function pruneLineageBlock(block: string, tableId: string): string | null {
+  if (!/Lineage\s*\{/i.test(block)) return block;
+  const bodyLines: string[] = [];
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || /^Lineage\s*\{/i.test(trimmed) || trimmed === '}') {
+      continue;
+    }
+    const m = /^([^\s<]+)\s*<\s*(.+)$/.exec(trimmed);
+    if (!m) continue;
+    const target = m[1].trim();
+    if (tableMatches(target, tableId)) continue;
+    const sources = m[2].split(',').map((s) => s.trim()).filter((s) => !tableMatches(s, tableId));
+    if (!sources.length) continue;
+    const indent = line.match(/^(\s*)/)?.[1] ?? '  ';
+    bodyLines.push(`${indent}${target} < ${sources.join(', ')}`);
+  }
+  if (!bodyLines.length) return null;
+  return `Lineage {\n${bodyLines.join('\n')}\n}\n`;
+}
+
+function pruneLineageFieldsBlock(block: string, tableId: string): string | null {
+  if (!/LineageFields\s*\{/i.test(block)) return block;
+  const bodyLines: string[] = [];
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || /^LineageFields\s*\{/i.test(trimmed) || trimmed === '}') {
+      continue;
+    }
+    const m = /^([^\s<]+)\s*<\s*([^\s\[]+)(?:\s*\[([^\]]*)\])?\s*$/.exec(trimmed);
+    if (!m) continue;
+    const target = splitTableColumn(m[1].trim());
+    const source = splitTableColumn(m[2].trim());
+    if (!target || !source) continue;
+    if (tableMatches(target.table, tableId) || tableMatches(source.table, tableId)) continue;
+    bodyLines.push(line);
+  }
+  if (!bodyLines.length) return null;
+  return `LineageFields {\n${bodyLines.join('\n')}\n}\n`;
+}
+
+function clearInlineRefsToTable(src: string, tableId: string): string {
+  return splitDbmlBlocks(src)
+    .map((b) => {
+      if (b.type !== 'table' || tableMatches(b.name, tableId)) return b.text;
+      return b.text
+        .split('\n')
+        .map((line) => {
+          if (!isFieldLine(line)) return line;
+          const f = parseFieldLine(line);
+          if (!f) return line;
+          const settings = getColumnSettings(src, b.name!, f.name);
+          if (!settings.refTarget || !tableTokenInText(settings.refTarget, tableId)) return line;
+          return `${f.indent}${f.name} ${applySettings(f.rest, { ...settings, refTarget: null })}`;
+        })
+        .join('\n');
+    })
+    .join('\n');
+}
+
+/** Remove tabela e todas as referências cruzadas (refs, lineage, grupos, records). */
+export function removeTable(src: string, tableId: string): string {
+  const id = stripQuotes(tableId);
+  let out = splitDbmlBlocks(src)
+    .filter((b) => {
+      if (b.type === 'table' && tableMatches(b.name, id)) return false;
+      if (b.type === 'records' && tableMatches(b.name, id)) return false;
+      if (b.type === 'ref' && tableTokenInText(b.text, id)) return false;
+      return true;
+    })
+    .map((b) => {
+      if (b.type === 'tableGroup' || b.type === 'layerGroup') {
+        return pruneGroupMembers(b.text, id);
+      }
+      if (b.type === 'lineage') {
+        const pruned = pruneLineageBlock(b.text, id);
+        return pruned ?? '';
+      }
+      if (b.type === 'lineageFields') {
+        const pruned = pruneLineageFieldsBlock(b.text, id);
+        return pruned ?? '';
+      }
+      return b.text;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  out = clearInlineRefsToTable(out, id);
+  return out.replace(/\n{3,}/g, '\n\n').trim() + (out.trim() ? '\n' : '');
 }
 
 /** Acrescenta `Ref: from.col > to.col`. Evita duplicata e self-loop na mesma coluna. */

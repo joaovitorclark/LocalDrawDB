@@ -94,6 +94,7 @@ export function useCanvasNodes(
         type: 'table',
         position: posOf(t, i),
         data: t,
+        deletable: true,
         selected: selectedSet.has(t.id),
         hidden: opts.hiddenTables.has(t.id),
         style: opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : undefined,

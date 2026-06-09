@@ -1,11 +1,15 @@
 import { useInteraction } from '../store/interaction';
 
+type Props = {
+  onRemoveTables?: (ids: string[]) => void;
+};
+
 function shortName(id: string): string {
   const dot = id.lastIndexOf('.');
   return dot >= 0 ? id.slice(dot + 1) : id;
 }
 
-export function SelectionBar() {
+export function SelectionBar({ onRemoveTables }: Props) {
   const selectedTableIds = useInteraction((s) => s.selectedTableIds);
   const setSelectedTableIds = useInteraction((s) => s.setSelectedTableIds);
   const clearCanvasSelection = useInteraction((s) => s.clearCanvasSelection);
@@ -40,6 +44,20 @@ export function SelectionBar() {
           </span>
         ))}
       </div>
+      {onRemoveTables && selectedTableIds.length >= 1 && (
+        <button
+          type="button"
+          className="selection-bar__delete"
+          onClick={() => {
+            const n = selectedTableIds.length;
+            if (confirm(`Apagar ${n} tabela(s) selecionada(s) e refs relacionadas?`)) {
+              onRemoveTables(selectedTableIds);
+            }
+          }}
+        >
+          Apagar selecionadas
+        </button>
+      )}
       {selectedTableIds.length > 1 && (
         <button type="button" className="selection-bar__clear" onClick={clearCanvasSelection}>
           Limpar

@@ -23,8 +23,23 @@ Funcionam em **qualquer** dialeto, acima do `CREATE TABLE`:
 | `-- @group: ingestao` | Entrada no `TableGroup ingestao` |
 | `-- @note: texto` | `Note:` no bloco **Records** (não no `Table`) |
 | `-- @fk: col -> schema.tabela.col` | `Ref: tabela.col > schema.tabela.col` |
+| `-- @origen: schema.origem` | `Lineage { destino < origem }` (L1 tabela→tabela) |
+| `-- @map <- schema.tabela.col` (inline na coluna) | `LineageFields { dest.col < orig.col }` (L2) |
 
-Exemplo:
+Exemplo com linhagem:
+
+```sql
+-- @layer: prata
+-- @origen: raw.customers
+CREATE TABLE silver.dim_customer (
+  customer_key BIGINT,
+  natural_id BIGINT, -- @map <- raw.customers.id
+  name STRING,       -- @map <- raw.customers.name
+  PRIMARY KEY (customer_key)
+) USING DELTA;
+```
+
+Exemplo com FK e amostra:
 
 ```sql
 -- @layer: bronze
@@ -39,6 +54,10 @@ CREATE TABLE raw.orders (
 
 INSERT INTO raw.orders (id, customer_id) VALUES (1, 100);
 ```
+
+- **`@fk`** = integridade referencial (FK lógica)
+- **`@origen`** = derivação ETL tabela→tabela
+- **`@map`** = derivação ETL coluna→coluna (alias `@mapeamento`)
 
 ## Relacionamentos (FK)
 
@@ -82,11 +101,12 @@ Exporte `CREATE TABLE` + opcionalmente `INSERT` para amostra. Recomendado prefix
 
 - **Tabelas:** substituídas por nome qualificado (`schema.tabela`).
 - **Refs:** união (não remove refs que existem só no DBML).
+- **Linhagem L1/L2:** união (mantém entradas do editor + input; dedupe por par).
 - Refs manuais no editor são preservadas se não conflitarem.
 
 ## Arquivo de exemplo
 
 Veja [demo_lakehouse.sql](demo_lakehouse.sql):
 
-- **Lakehouse** (Spark/Delta): bronze → prata → ouro, `@layer` / `@group` / `@note` / `@fk`, `INSERT`, PK composta em `gold.report_revenue`, `FOREIGN KEY` em `silver.fact_orders`
+- **Lakehouse** (Spark/Delta): bronze → prata → ouro, `@layer` / `@group` / `@note` / `@fk` / `@origen` / `@map`, `INSERT`, PK composta em `gold.report_revenue`, `FOREIGN KEY` em `silver.fact_orders`
 - **Oracle** (final do arquivo): `staging.cliente` + `staging.pedido` com `COMMENT ON` e `CONSTRAINT … FOREIGN KEY`

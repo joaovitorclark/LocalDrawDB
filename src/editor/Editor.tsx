@@ -1,9 +1,10 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { sql } from '@codemirror/lang-sql';
 import { EditorView } from '@codemirror/view';
 import { Outline } from './Outline';
 import { dbmlFoldExtension } from './dbmlFold';
+import { cursorLineExtension } from './cursorLineExtension';
 import { lineOfColumn } from '../dsl/lineLocate';
 
 export type EditorHandle = {
@@ -18,13 +19,26 @@ type Props = {
   errorLine?: number;
   onFocusTable?: (tableId: string) => void;
   onGoToError?: () => void;
+  /** Cursor moveu — linha 0-based (para sincronizar canvas). */
+  onCursorLine?: (line0: number) => void;
 };
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(
-  { value, onChange, error, errorLine, onFocusTable, onGoToError },
+  { value, onChange, error, errorLine, onFocusTable, onGoToError, onCursorLine },
   ref,
 ) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
+  const onCursorLineRef = useRef(onCursorLine);
+  onCursorLineRef.current = onCursorLine;
+
+  const extensions = useMemo(
+    () => [
+      sql(),
+      dbmlFoldExtension,
+      cursorLineExtension((line0) => onCursorLineRef.current?.(line0)),
+    ],
+    [],
+  );
 
   const goToLine = useCallback((line: number) => {
     const view = cmRef.current?.view;
@@ -56,7 +70,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
         height="100%"
         className="cm-host"
         theme="dark"
-        extensions={[sql(), dbmlFoldExtension]}
+        extensions={extensions}
         onChange={onChange}
         basicSetup={{
           lineNumbers: true,

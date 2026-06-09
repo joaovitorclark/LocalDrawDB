@@ -66,6 +66,19 @@ export function TableNode({ data }: { data: TableView }) {
             </span>
           )}
           <button
+            type="button"
+            className="table-node__delete"
+            title="Apagar tabela"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Apagar tabela ${data.id} e refs relacionadas?`)) {
+                actions.onRemoveTable(data.id);
+              }
+            }}
+          >
+            ×
+          </button>
+          <button
             className="table-node__color"
             title="Cor / camada da tabela"
             onClick={(e) => {

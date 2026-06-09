@@ -28,9 +28,24 @@ export type Ref = {
   kind: '>' | '<' | '-' | '<>'; // n:1, 1:n, 1:1, n:n
 };
 
+/** Linhagem L1 tabela→tabela (DBML `Lineage { }`). */
+export type LineageEntry = { target: string; sources: string[] };
+
+/** Linhagem L2 campo→campo (DBML `LineageFields { }`). */
+export type FieldLineageEntry = {
+  targetTable: string;
+  targetColumn: string;
+  sourceTable: string;
+  sourceColumn: string;
+  note?: string;
+  ref?: string;
+};
+
 export type Model = {
   tables: Table[];
   refs: Ref[];
+  lineage?: LineageEntry[];
+  lineageFields?: FieldLineageEntry[];
   /** Avisos do import SQL (ex.: FK composta com aridade divergente). */
   warnings?: string[];
 };

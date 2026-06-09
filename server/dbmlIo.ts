@@ -1,17 +1,30 @@
 // Conversão DBML <-> modelo canônico.
 // DBML é a fonte de verdade do projeto; o modelo é o intermediário para os geradores.
 import { Parser } from '@dbml/core';
+import { extractRecords } from './dbmlClean.ts';
 import { parseTypeName, qualifiedName } from './model.ts';
-import type { Column, Model, Ref, Table } from './model.ts';
+import type { Column, FieldLineageEntry, LineageEntry, Model, Ref, Table } from './model.ts';
 
 const REL_TO_KIND: Record<string, '>' | '<' | '-' | '<>'> = {
   '*': '>', // muitos -> um (lado "from")
   '1': '-',
 };
 
-/** Faz parse de uma string DBML para o modelo canônico. */
+const stripQuotes = (s: string) => s.replace(/["`]/g, '').trim();
+
+function tableIdMatches(a: string, b: string): boolean {
+  const x = stripQuotes(a).toLowerCase();
+  const y = stripQuotes(b).toLowerCase();
+  if (x === y) return true;
+  const lastX = x.split('.').pop()!;
+  const lastY = y.split('.').pop()!;
+  return lastX === lastY && (x.endsWith('.' + lastY) || y.endsWith('.' + lastX));
+}
+
+/** Faz parse de uma string DBML para o modelo canônico (inclui LayerGroup, Records, PK composta). */
 export function dbmlToModel(dbml: string): Model {
-  const db = Parser.parse(dbml, 'dbml');
+  const { clean, records, layerGroups, lineage, lineageFields } = extractRecords(dbml);
+  const db = Parser.parse(clean, 'dbml');
   const tables: Table[] = [];
   const refs: Ref[] = [];
 
@@ -19,6 +32,7 @@ export function dbmlToModel(dbml: string): Model {
     const schemaName = schema.name && schema.name !== 'public' ? schema.name : undefined;
 
     for (const t of schema.tables) {
+      const compositePks: string[][] = [];
       const columns: Column[] = t.fields.map((f: any) => {
         const { base, args } = parseTypeName(f.type.type_name);
         return {
@@ -30,21 +44,35 @@ export function dbmlToModel(dbml: string): Model {
           note: f.note || undefined,
         };
       });
+
+      for (const idx of (t as any).indexes ?? []) {
+        const cols = (idx.columns ?? []).map((c: any) => (typeof c === 'string' ? c : c.name));
+        if (idx.pk && cols.length > 1) {
+          compositePks.push(cols);
+          for (const n of cols) {
+            const col = columns.find((c) => c.name === n);
+            if (col) {
+              col.pk = true;
+              col.nullable = false;
+            }
+          }
+        }
+      }
+
       tables.push({
         name: t.name,
         schema: schemaName,
         columns,
         note: t.note || undefined,
         group: t.group?.name || undefined,
+        compositePks: compositePks.length ? compositePks : undefined,
       });
     }
 
     for (const r of schema.refs) {
       const [a, b] = r.endpoints;
-      // O endpoint "muitos" (relation '*') é o lado FROM (a FK).
       const fromEp = a.relation === '*' ? a : b;
       const toEp = fromEp === a ? b : a;
-      // Mantém o nome qualificado (schema.tabela) para gerar refs DBML válidos.
       const epName = (ep: any) =>
         ep.schemaName && ep.schemaName !== 'public'
           ? `${ep.schemaName}.${ep.tableName}`
@@ -57,7 +85,41 @@ export function dbmlToModel(dbml: string): Model {
     }
   }
 
-  return { tables, refs };
+  for (const lg of layerGroups) {
+    for (const member of lg.tables) {
+      const t = tables.find((x) => tableIdMatches(qualifiedName(x), member));
+      if (t) t.layer = lg.name;
+    }
+  }
+
+  for (const rec of records) {
+    const t = tables.find((x) => tableIdMatches(qualifiedName(x), rec.table) || x.name === rec.table);
+    if (!t) continue;
+    if (rec.rows.length) {
+      t.records = {
+        columns: rec.columns.length ? rec.columns : t.columns.map((c) => c.name),
+        rows: rec.rows,
+      };
+    }
+    if (rec.note) {
+      t.note = rec.note;
+      t.noteInRecordsOnly = true;
+    }
+  }
+
+  const modelLineage: LineageEntry[] | undefined = lineage.length
+    ? lineage.map((l) => ({ target: l.target, sources: [...l.sources] }))
+    : undefined;
+  const modelLineageFields: FieldLineageEntry[] | undefined = lineageFields.length
+    ? lineageFields.map((f) => ({ ...f }))
+    : undefined;
+
+  return {
+    tables,
+    refs,
+    lineage: modelLineage,
+    lineageFields: modelLineageFields,
+  };
 }
 
 function quoteNote(note: string): string {
@@ -96,7 +158,28 @@ export function modelToDbml(model: Model): string {
     );
   }
 
-  // Agrupamentos viram TableGroups (organização visual).
+  if (model.lineage?.length) {
+    out.push('');
+    out.push('Lineage {');
+    for (const entry of model.lineage) {
+      out.push(`  ${entry.target} < ${entry.sources.join(', ')}`);
+    }
+    out.push('}');
+  }
+
+  if (model.lineageFields?.length) {
+    out.push('');
+    out.push('LineageFields {');
+    for (const f of model.lineageFields) {
+      const settings: string[] = [];
+      if (f.note) settings.push(`note: ${quoteNote(f.note)}`);
+      if (f.ref) settings.push(`ref: ${quoteNote(f.ref)}`);
+      const suffix = settings.length ? ` [${settings.join(', ')}]` : '';
+      out.push(`  ${f.targetTable}.${f.targetColumn} < ${f.sourceTable}.${f.sourceColumn}${suffix}`);
+    }
+    out.push('}');
+  }
+
   const groups = new Map<string, string[]>();
   for (const t of model.tables) {
     if (t.group) {
@@ -112,7 +195,6 @@ export function modelToDbml(model: Model): string {
     out.push('}');
   }
 
-  // LayerGroups a partir de @layer nos metadados de import.
   const layers = new Map<string, string[]>();
   for (const t of model.tables) {
     if (t.layer) {
@@ -128,7 +210,6 @@ export function modelToDbml(model: Model): string {
     out.push('}');
   }
 
-  // Records a partir de INSERTs (note de import vai aqui, não no Table).
   for (const t of model.tables) {
     const hasRows = t.records && t.records.rows.length;
     const hasImportNote = t.note && (t.noteInRecordsOnly || hasRows);

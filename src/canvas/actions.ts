@@ -19,6 +19,7 @@ export type CanvasActions = {
   onRenameColumn: (table: string, oldName: string, newName: string) => void;
   onGoToColumn?: (table: string, column: string) => void;
   onRenameTable: (tableId: string, newName: string) => void;
+  onRemoveTable: (tableId: string) => void;
   onAddColumn: (table: string) => void;
   colorOf: (tableId: string) => string | undefined;
   onSetColor: (tableId: string, color: string | null) => void;

@@ -5,9 +5,10 @@ import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from 
 import { validateModel } from './dsl/validateModel';
 import { organize } from './dsl/organize';
 import { autolayoutPositions } from './canvas/autolayout';
+import { defaultTablePosition } from './canvas/defaultTablePosition';
 import { ProblemsPanel } from './canvas/ProblemsPanel';
 import {
-  appendRef, removeRef, renameColumnAllRefs, renameTable, addColumn, setTableLayer, addLayerGroup,
+  appendRef, removeRef, removeTable, renameColumnAllRefs, renameTable, addColumn, setTableLayer, addLayerGroup,
   addLineageEntry, removeLineageEntry, addFieldLineageEntry, removeFieldLineageEntry, updateFieldLineageMeta,
 } from './dsl/edit';
 import { RecordsPanel } from './records/RecordsPanel';
@@ -18,6 +19,9 @@ import { LayersPanel } from './canvas/LayersPanel';
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { detectRenames } from './dsl/renameDetect';
+import { isCompleteTableId } from './dsl/edit';
+import { resolveTableId, tableAtLine } from './dsl/lineLocate';
+import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import * as api from './api';
 import type { LineageLink } from './api';
@@ -65,6 +69,7 @@ export default function App() {
   const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const [autoSave, setAutoSave] = useState(false);
   const [focusTableId, setFocusTableId] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState(0);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const loadedRef = useRef(false);
@@ -211,10 +216,61 @@ export default function App() {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
+  /** Modelo ao vivo quando o parse é válido; evita canvas defasado após mutações (ex.: remover Ref). */
+  const activeModel = useMemo(
+    () => (parsed.error ? canvasModel : parsed),
+    [parsed, canvasModel],
+  );
+
+  const editorCursorLineRef = useRef(0);
+  const editingTableRef = useRef<string | null>(null);
+  const lastPanTableRef = useRef<string | null>(null);
+
+  const tableIdsKey = useMemo(
+    () => activeModel.tables.map((t) => t.id).join('\0'),
+    [activeModel.tables],
+  );
+
+  // Posições: remove órfãs e atribui posição default a tabelas novas (criadas no editor).
+  useEffect(() => {
+    const ids = new Set(activeModel.tables.map((t) => t.id));
+    setPositions((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(next)) {
+        if (!ids.has(id)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      activeModel.tables.forEach((t, i) => {
+        if (next[t.id]) return;
+        next[t.id] = defaultTablePosition(next, i);
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setColors((prev) => {
+      const stale = Object.keys(prev).filter((id) => !ids.has(id));
+      if (!stale.length) return prev;
+      const next = { ...prev };
+      for (const id of stale) delete next[id];
+      return next;
+    });
+  }, [activeModel.tables]);
+
+  const mutateDbml = useCallback((fn: (d: string) => string) => {
+    setDbml((d) => {
+      const next = fn(d);
+      prevDbmlRef.current = next;
+      return next;
+    });
+  }, []);
+
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
 
   const modelIssues = useMemo(() => {
-    const issues = validateModel(canvasModel, dbml);
+    const issues = validateModel(activeModel, dbml);
     const parseIssues = parsed.error
       ? [{ severity: 'error' as const, message: parsed.error, line: parsed.errorLine }]
       : [];
@@ -223,7 +279,35 @@ export default function App() {
       message,
     }));
     return [...parseIssues, ...fromImport, ...issues];
-  }, [canvasModel, dbml, parsed.error, parsed.errorLine, importWarnings]);
+  }, [activeModel, dbml, parsed.error, parsed.errorLine, importWarnings]);
+
+  const pruneCanvasState = useCallback((removedIds: string[]) => {
+    const gone = new Set(removedIds);
+    setPositions((prev) => {
+      const next = { ...prev };
+      for (const id of gone) delete next[id];
+      return next;
+    });
+    setColors((prev) => {
+      const next = { ...prev };
+      for (const id of gone) delete next[id];
+      return next;
+    });
+    const st = useInteraction.getState();
+    if (st.selectedTable && gone.has(st.selectedTable)) st.selectTable(null);
+    const nextIds = st.selectedTableIds.filter((id) => !gone.has(id));
+    if (nextIds.length !== st.selectedTableIds.length) {
+      if (nextIds.length) st.setSelectedTableIds(nextIds);
+      else st.clearCanvasSelection();
+    }
+    if (
+      st.focusedFieldMapping &&
+      (gone.has(st.focusedFieldMapping.sourceTable) || gone.has(st.focusedFieldMapping.targetTable))
+    ) {
+      st.setFocusedFieldMapping(null);
+    }
+    if (focusTableId && gone.has(focusTableId)) setFocusTableId(null);
+  }, [focusTableId]);
 
   const migrateTableId = useCallback((oldId: string, newId: string) => {
     setPositions((prev) => {
@@ -260,6 +344,10 @@ export default function App() {
         if (detected.length === 1) {
           const r = detected[0];
           if (r.kind === 'table' && r.oldId !== r.newId) {
+            if (!isCompleteTableId(r.oldId) || !isCompleteTableId(r.newId)) {
+              prevDbmlRef.current = next;
+              return;
+            }
             const propagated = renameTable(next, r.oldId, r.newId);
             prevDbmlRef.current = propagated;
             migrateTableId(r.oldId, r.newId);
@@ -297,31 +385,65 @@ export default function App() {
 
   const clearFocusTable = useCallback(() => setFocusTableId(null), []);
 
-  const focusTable = useCallback((tableId: string) => {
+  const focusTable = useCallback((tableId: string, options?: FocusTableOptions) => {
     setFocusTableId(tableId);
     useInteraction.getState().selectTable(tableId);
+    if (shouldPanToTable(lastPanTableRef.current, tableId, options)) {
+      lastPanTableRef.current = tableId;
+      setFocusNonce((n) => n + 1);
+    }
   }, []);
+
+  const focusTableWithPan = useCallback(
+    (tableId: string) => focusTable(tableId, { pan: true }),
+    [focusTable],
+  );
+
+  const syncCanvasToEditorLine = useCallback(
+    (line0: number) => {
+      if (editorCollapsed) return;
+      editorCursorLineRef.current = line0;
+      const blockName = tableAtLine(dbml, line0);
+      if (!blockName) return;
+      const tableIds = activeModel.tables.map((t) => t.id);
+      const tableId = resolveTableId(blockName, tableIds);
+      if (!tableId || !shouldSyncEditorTable(editingTableRef.current, tableId)) return;
+      editingTableRef.current = tableId;
+      focusTable(tableId);
+    },
+    [dbml, activeModel.tables, editorCollapsed, focusTable],
+  );
+
+  const handleEditorCursorLine = useCallback(
+    (line0: number) => syncCanvasToEditorLine(line0),
+    [syncCanvasToEditorLine],
+  );
+
+  // Nova tabela no parse: foca se o cursor ainda está no bloco dela.
+  useEffect(() => {
+    syncCanvasToEditorLine(editorCursorLineRef.current);
+  }, [tableIdsKey, syncCanvasToEditorLine]);
 
   const handleAutolayout = useCallback(() => {
     const lineageMode = useInteraction.getState().lineageMode;
-    setPositions(autolayoutPositions(canvasModel, lineageMode));
+    setPositions(autolayoutPositions(activeModel, lineageMode));
     setFitViewTrigger((n) => n + 1);
-    setStatus(`Canvas reorganizado (${canvasModel.tables.length} tabelas)`);
+    setStatus(`Canvas reorganizado (${activeModel.tables.length} tabelas)`);
     setSaveState('dirty');
-  }, [canvasModel]);
+  }, [activeModel]);
 
   // Lineage derivado do DBML (ParsedLineage[] → LineageLink[]).
   const lineage = useMemo<LineageLink[]>(() => {
     const out: LineageLink[] = [];
-    for (const entry of canvasModel.lineage) {
+    for (const entry of activeModel.lineage) {
       for (const s of entry.sources) out.push({ source: s, target: entry.target });
     }
     return out;
-  }, [canvasModel.lineage]);
+  }, [activeModel.lineage]);
 
   // Camadas vêm do DBML (LayerGroup) — fonte de verdade exportável.
-  const layersArr = useMemo(() => layersFromGroups(canvasModel.layerGroups), [canvasModel.layerGroups]);
-  const layerMembership = useMemo(() => tableLayerMap(canvasModel.layerGroups), [canvasModel.layerGroups]);
+  const layersArr = useMemo(() => layersFromGroups(activeModel.layerGroups), [activeModel.layerGroups]);
+  const layerMembership = useMemo(() => tableLayerMap(activeModel.layerGroups), [activeModel.layerGroups]);
   const layerOf = useCallback(
     (id: string) => {
       if (layerMembership[id]) return layerMembership[id];
@@ -329,6 +451,27 @@ export default function App() {
       return schema && layersArr.some((l) => l.id === schema) ? schema : undefined;
     },
     [layerMembership, layersArr],
+  );
+
+  const handleRemoveTable = useCallback(
+    (tableId: string) => {
+      mutateDbml((d) => removeTable(d, tableId));
+      pruneCanvasState([tableId]);
+      setStatus(`Tabela removida: ${tableId}`);
+      setSaveState('dirty');
+    },
+    [mutateDbml, pruneCanvasState],
+  );
+
+  const handleRemoveTables = useCallback(
+    (tableIds: string[]) => {
+      if (!tableIds.length) return;
+      mutateDbml((d) => tableIds.reduce((acc, id) => removeTable(acc, id), d));
+      pruneCanvasState(tableIds);
+      setStatus(`${tableIds.length} tabela(s) removida(s)`);
+      setSaveState('dirty');
+    },
+    [mutateDbml, pruneCanvasState],
   );
 
   // Ações do canvas (mutações de documento e cores) expostas via contexto.
@@ -351,6 +494,7 @@ export default function App() {
         });
         migrateTableId(tableId, newName.trim());
       },
+      onRemoveTable: handleRemoveTable,
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
       colorOf: (id) => colors[id],
       onSetColor: (id, color) =>
@@ -369,15 +513,15 @@ export default function App() {
       onToggleGroup: (name) =>
         setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name])),
       tableMeta: (id) => {
-        const t = canvasModel.tables.find((x) => x.id === id);
+        const t = activeModel.tables.find((x) => x.id === id);
         const sources = lineage.filter((l) => l.target === id).map((l) => l.source);
-        const rec = canvasModel.records.find((r) => r.table === id || r.table === t?.name);
+        const rec = activeModel.records.find((r) => r.table === id || r.table === t?.name);
         const sample = rec ? { columns: rec.columns, rows: rec.rows } : null;
         const pks = t ? t.columns.filter((c) => c.pk).map((c) => c.name) : [];
-        const fks = canvasModel.refs
+        const fks = activeModel.refs
           .filter((r) => r.source === id)
           .map((r) => ({ column: r.fromCol, ref: `${r.target}.${r.toCol}` }));
-        const refsIn = [...new Set(canvasModel.refs.filter((r) => r.target === id).map((r) => r.source))];
+        const refsIn = [...new Set(activeModel.refs.filter((r) => r.target === id).map((r) => r.source))];
         const columnNotes = t
           ? t.columns.filter((c) => c.note).map((c) => ({ column: c.name, note: c.note as string }))
           : [];
@@ -385,36 +529,36 @@ export default function App() {
         return { sources, sample, pks, fks, refsIn, note: t?.note, columnNotes, has };
       },
     }),
-    [colors, selectColumn, layerOf, layersArr, canvasModel, lineage, goToColumn, migrateTableId],
+    [colors, selectColumn, layerOf, layersArr, activeModel, lineage, goToColumn, migrateTableId, handleRemoveTable],
   );
 
   const handleCreateLineage = (source: string, target: string) => {
     if (!source || !target || source === target) return;
-    setDbml((d) => addLineageEntry(d, source, target));
+    mutateDbml((d) => addLineageEntry(d, source, target));
   };
   const handleRemoveLineage = (source: string, target: string) => {
-    setDbml((d) => removeLineageEntry(d, source, target));
+    mutateDbml((d) => removeLineageEntry(d, source, target));
   };
   const handleAddFieldLineage = (
     sourceTable: string, sourceColumn: string, targetColumn: string, note?: string, ref?: string,
   ) => {
     const targetTable = useInteraction.getState().selectedTable;
     if (!targetTable) return;
-    setDbml((d) =>
+    mutateDbml((d) =>
       addFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
     );
   };
   const handleRemoveFieldLineage = (
     sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
   ) => {
-    setDbml((d) => removeFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn));
+    mutateDbml((d) => removeFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn));
   };
   const handleUpdateFieldLineageMeta = (
     sourceTable: string, sourceColumn: string, targetColumn: string, note: string, ref: string,
   ) => {
     const targetTable = useInteraction.getState().selectedTable;
     if (!targetTable) return;
-    setDbml((d) =>
+    mutateDbml((d) =>
       updateFieldLineageMeta(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
     );
   };
@@ -423,21 +567,21 @@ export default function App() {
 
   const handleCreateRef = (fromTbl: string, fromCol: string, toTbl: string, toCol: string) => {
     if (!fromCol || !toCol) return;
-    const fromTable = canvasModel.tables.find((t) => t.id === fromTbl);
-    const toTable = canvasModel.tables.find((t) => t.id === toTbl);
+    const fromTable = activeModel.tables.find((t) => t.id === fromTbl);
+    const toTable = activeModel.tables.find((t) => t.id === toTbl);
     const fromIsPk = !!fromTable?.columns.find((c) => c.name === fromCol)?.pk;
     const toIsPk = !!toTable?.columns.find((c) => c.name === toCol)?.pk;
     if (fromIsPk && !toIsPk) {
-      setDbml((d) => appendRef(d, toTbl, toCol, fromTbl, fromCol));
+      mutateDbml((d) => appendRef(d, toTbl, toCol, fromTbl, fromCol));
       setStatus(`Relação criada: ${toTbl}.${toCol} → ${fromTbl}.${fromCol}`);
     } else {
-      setDbml((d) => appendRef(d, fromTbl, fromCol, toTbl, toCol));
+      mutateDbml((d) => appendRef(d, fromTbl, fromCol, toTbl, toCol));
       setStatus(`Relação criada: ${fromTbl}.${fromCol} → ${toTbl}.${toCol}`);
     }
   };
 
   const handleRemoveRef = (fromTbl: string, fromCol: string, toTbl: string, toCol: string) => {
-    setDbml((d) => removeRef(d, fromTbl, fromCol, toTbl, toCol));
+    mutateDbml((d) => removeRef(d, fromTbl, fromCol, toTbl, toCol));
     setStatus(`Relação removida: ${fromTbl}.${fromCol} → ${toTbl}.${toCol}`);
   };
 
@@ -462,7 +606,7 @@ export default function App() {
     });
 
   const handleExport = (
-    kind: 'ddl' | 'dbt' | 'erwin' | 'mermaid',
+    kind: string,
     fn: (d: string) => Promise<{ files: string[] }>,
   ) => run(`Exportando ${kind}`, async () => `Gerado: ${(await fn(dbml)).files.join(', ')}`);
 
@@ -476,7 +620,16 @@ export default function App() {
 
   const addTable = () => {
     const name = prompt('Nome da nova tabela (schema.tabela):', 'novo_schema.nova_tabela');
-    if (name) setDbml((d) => d + newTableTemplate(name.trim()));
+    if (!name?.trim()) return;
+    const tableId = name.trim();
+    mutateDbml((d) => d + newTableTemplate(tableId));
+    setPositions((prev) => ({
+      ...prev,
+      [tableId]: defaultTablePosition(prev),
+    }));
+    focusTableWithPan(tableId);
+    setStatus(`Tabela criada: ${tableId}`);
+    setSaveState('dirty');
   };
 
   const addMetadata = () =>
@@ -510,6 +663,12 @@ export default function App() {
         </button>
         <span className="sep" />
         <button onClick={handleImport}>Importar (input/)</button>
+        <button onClick={() => handleExport('input Spark', (d) => api.exportInput(d, 'spark'))}>
+          Export input (Spark)
+        </button>
+        <button onClick={() => handleExport('input Oracle', (d) => api.exportInput(d, 'oracle'))}>
+          Export input (Oracle)
+        </button>
         <button onClick={() => handleExport('ddl', api.exportDdl)}>Export DDL</button>
         <button onClick={() => handleExport('dbt', api.exportDbt)}>Export dbt</button>
         <button onClick={() => handleExport('erwin', api.exportErwin)}>Export erwin</button>
@@ -573,20 +732,24 @@ export default function App() {
             onChange={handleDbmlChange}
             error={parsed.error}
             errorLine={parsed.errorLine}
-            onFocusTable={focusTable}
+            onFocusTable={focusTableWithPan}
+            onCursorLine={handleEditorCursorLine}
             onGoToError={() => setEditorCollapsed(false)}
           />
         </section>
         <section className="pane pane--canvas">
           <CanvasActionsCtx.Provider value={actions}>
             <Canvas
-              parsed={canvasModel}
+              parsed={activeModel}
               positions={positions}
               onPositionsChange={setPositions}
               onCreateRef={handleCreateRef}
               onRemoveRef={handleRemoveRef}
+              onRemoveTable={handleRemoveTable}
+              onRemoveTables={handleRemoveTables}
+              staleWarning={!!parsed.error}
               lineage={lineage}
-              lineageFields={canvasModel.lineageFields ?? []}
+              lineageFields={activeModel.lineageFields ?? []}
               onCreateLineage={handleCreateLineage}
               onRemoveLineage={handleRemoveLineage}
               onRemoveFieldLineage={handleRemoveFieldLineage}
@@ -594,20 +757,21 @@ export default function App() {
               collapsedGroups={collapsedGroups}
               onToggleGroup={handleToggleGroup}
               focusTableId={focusTableId}
+              focusNonce={focusNonce}
               onFocusTableDone={clearFocusTable}
               fitViewTrigger={fitViewTrigger}
             />
             <LayersPanel
               layers={layersArr}
-              tables={canvasModel.tables.map((t) => ({ id: t.id }))}
+              tables={activeModel.tables.map((t) => ({ id: t.id }))}
               onAddLayer={actions.onAddLayer}
-              onFocusTable={focusTable}
+              onFocusTable={focusTableWithPan}
               onAutolayout={handleAutolayout}
             />
-            <ProblemsPanel issues={modelIssues} onFocusTable={focusTable} onGoToLine={goToLine} />
+            <ProblemsPanel issues={modelIssues} onFocusTable={focusTableWithPan} onGoToLine={goToLine} />
             <ColumnPanel
               dbml={dbml}
-              tables={canvasModel.tables}
+              tables={activeModel.tables}
               onApply={(next) => {
                 prevDbmlRef.current = next;
                 setDbml(next);
@@ -623,8 +787,8 @@ export default function App() {
               onGoToColumn={goToColumn}
             />
             <FieldLineagePanel
-              tables={canvasModel.tables}
-              mappings={canvasModel.lineageFields ?? []}
+              tables={activeModel.tables}
+              mappings={activeModel.lineageFields ?? []}
               onAdd={handleAddFieldLineage}
               onRemove={(st, sc, tc) => {
                 const tt = useInteraction.getState().selectedTable;
@@ -633,7 +797,7 @@ export default function App() {
               onUpdateMeta={handleUpdateFieldLineageMeta}
             />
           </CanvasActionsCtx.Provider>
-          <RecordsPanel records={canvasModel.records} tables={canvasModel.tables} />
+          <RecordsPanel records={activeModel.records} tables={activeModel.tables} />
         </section>
       </main>
     </div>

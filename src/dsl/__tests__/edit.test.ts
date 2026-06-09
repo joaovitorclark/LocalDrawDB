@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { appendRef, refExists, removeRef, setColumnSetting, getColumnSettings, renameColumn, addColumn, renameTable } from '../edit';
+import {
+  appendRef, refExists, removeRef, removeTable, setColumnSetting, getColumnSettings,
+  renameColumn, addColumn, renameTable,
+} from '../edit';
 import { parseDbml } from '../parse';
 
 const SRC = `Table loja.cliente {
@@ -57,6 +60,20 @@ Ref: a.c_id > c.id
     expect(out).toContain('a.c_id > c.id');
     expect(reparses(out)).toBe(true);
     expect(parseDbml(out).refs).toHaveLength(1);
+  });
+
+  it('remove FK inline [ref: > …]', () => {
+    const src = `Table a {
+  id bigint [pk]
+  b_id bigint [ref: > b.id]
+}
+Table b {
+  id bigint [pk]
+}
+`;
+    const out = removeRef(src, 'a', 'b_id', 'b', 'id');
+    expect(out).not.toContain('ref: >');
+    expect(parseDbml(out).refs).toHaveLength(0);
   });
 
   it('round-trip appendRef -> removeRef volta ao original (sem o ref)', () => {
@@ -150,5 +167,56 @@ TableGroup vendas {
   it('não afeta tabela com nome que tem o antigo como prefixo', () => {
     const out = renameTable(WITH_REF, 'loja.cliente', 'loja.consumidor');
     expect(out).toContain('Table loja.cliente_endereco {'); // intacta
+  });
+});
+
+describe('removeTable', () => {
+  const LAKE = `LayerGroup bronze {
+  raw.orders
+  raw.customers
+}
+
+TableGroup ingestao {
+  raw.orders
+}
+
+Table raw.orders {
+  id bigint [pk]
+  customer_id bigint [ref: > raw.customers.id]
+}
+
+Table raw.customers {
+  id bigint [pk]
+}
+
+Ref: raw.orders.customer_id > raw.customers.id
+
+Lineage {
+  silver.orders < raw.orders
+}
+
+LineageFields {
+  silver.orders.id < raw.orders.id
+}
+
+Records raw.orders (id, customer_id) {
+  Note: 'Pedidos brutos'
+  1, 100
+}
+`;
+
+  it('remove tabela, refs, lineage, grupos e records', () => {
+    const out = removeTable(LAKE, 'raw.orders');
+    expect(out).not.toContain('Table raw.orders');
+    expect(out).not.toContain('Ref: raw.orders');
+    expect(out).not.toContain('ref: > raw.customers');
+    expect(out).not.toContain('Records raw.orders');
+    expect(out).not.toMatch(/Lineage[\s\S]*raw\.orders/);
+    expect(out).not.toMatch(/LineageFields[\s\S]*raw\.orders/);
+    expect(out).toContain('Table raw.customers');
+    expect(reparses(out)).toBe(true);
+    const model = parseDbml(out);
+    expect(model.tables.map((t) => t.id)).toEqual(['raw.customers']);
+    expect(model.refs).toHaveLength(0);
   });
 });
