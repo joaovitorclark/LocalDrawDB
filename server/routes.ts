@@ -8,6 +8,9 @@ import { modelToMermaid } from './ddl/mermaid.ts';
 import { modelToDbtFiles } from './dbtExport.ts';
 import { modelToInputSql, type InputDialect } from './sqlExport.ts';
 import {
+  DATA_DIR,
+  INPUT_DIR,
+  ROOT,
   loadProject,
   readInputSql,
   saveProject,
@@ -34,6 +37,14 @@ function parseOr400(dbml: string, reply: FastifyReply): Model | null {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  // Metadados do clone atual (debug: confirmar qual data/input/ esta ativo).
+  app.get('/api/meta', async () => ({
+    root: ROOT,
+    dataDir: DATA_DIR,
+    inputDir: INPUT_DIR,
+    port: Number(process.env.PORT ?? 5174),
+  }));
+
   // Carrega o projeto persistido (DBML + canvas).
   app.get('/api/project', async () => loadProject());
 

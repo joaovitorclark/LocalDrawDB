@@ -16,8 +16,9 @@ no erwin**. Sem Docker, sem servidor de banco.
 
 ```bash
 npm install
-npm run dev        # Vite (5173) + API Fastify (5174), com proxy
-# abra http://localhost:5173
+npm run dev        # portas livres por clone (web + API pareadas automaticamente)
+# o terminal mostra a URL web e o path do projeto
+# segundo clone: npm run dev de novo — usa outras portas, data/input/ proprio
 ```
 
 Produção (um processo serve UI + API):
