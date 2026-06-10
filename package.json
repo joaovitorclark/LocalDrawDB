@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Modelador local de bancos/lakehouses estilo dbdiagram.io",
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev": "node scripts/dev.mjs",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
     "build": "vite build",

@@ -1,14 +1,33 @@
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Frontend dev server (5173) faz proxy de /api -> Fastify (5174).
+function resolveApiPort(): number {
+  if (process.env.API_PORT) return Number(process.env.API_PORT);
+  const metaPath = path.resolve('.localdrawdb-dev.json');
+  if (existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as { apiPort?: number };
+      if (meta.apiPort) return meta.apiPort;
+    } catch {
+      /* fallback */
+    }
+  }
+  return Number(process.env.PORT ?? 5174);
+}
+
+const apiPort = resolveApiPort();
+
+// Frontend dev server faz proxy de /api -> Fastify do MESMO clone (porta em API_PORT).
 // Build sai em dist/, servido pelo Fastify em produção.
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: Number(process.env.VITE_PORT ?? 5173),
+    strictPort: !!process.env.VITE_PORT,
     proxy: {
-      '/api': 'http://localhost:5174',
+      '/api': `http://127.0.0.1:${apiPort}`,
     },
   },
   build: {
