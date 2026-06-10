@@ -25,7 +25,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: Number(process.env.VITE_PORT ?? 5173),
-    strictPort: !!process.env.VITE_PORT,
+    strictPort: true,
     proxy: {
       '/api': `http://127.0.0.1:${apiPort}`,
     },
