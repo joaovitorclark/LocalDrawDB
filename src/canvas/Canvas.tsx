@@ -17,6 +17,7 @@ import type { LineageLink } from '../api';
 import { DEFAULT_LINEAGE_SOURCE, DEFAULT_LINEAGE_TARGET, isLineageHandle, pickLineageHandles } from './lineageHandles';
 import { diagramOverviewBounds, focusFieldMappingInView, focusTableInView } from './focusTableView';
 import { SelectionBar } from './SelectionBar';
+import { edgeClassForTier, edgeFocusTier } from './edgeFocus';
 
 const isMacOs = () =>
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
@@ -162,6 +163,7 @@ export function Canvas(props: Props) {
   const setFocusedFieldMapping = useInteraction((s) => s.setFocusedFieldMapping);
   const setHovered = useInteraction((s) => s.setHovered);
   const selectColumn = useInteraction((s) => s.selectColumn);
+  const selectedColumn = useInteraction((s) => s.selectedColumn);
   const selectGroup = useInteraction((s) => s.selectGroup);
   const hiddenLayers = useInteraction((s) => s.hiddenLayers);
   const layerDimMode = useInteraction((s) => s.layerDimMode);
@@ -175,6 +177,7 @@ export function Canvas(props: Props) {
 
   const focusTables = useMemo(() => {
     if (selectedTableIds.length) return selectedTableIds;
+    if (selectedColumn) return [selectedColumn.table];
     if (focusedFieldMapping) {
       return focusedFieldMapping.sourceTable === focusedFieldMapping.targetTable
         ? [focusedFieldMapping.sourceTable]
@@ -183,7 +186,7 @@ export function Canvas(props: Props) {
     if (fieldLineageVisible && selectedTable) return [selectedTable];
     if (hovered) return [hovered];
     return [];
-  }, [selectedTableIds, focusedFieldMapping, fieldLineageVisible, selectedTable, hovered]);
+  }, [selectedTableIds, selectedColumn, focusedFieldMapping, fieldLineageVisible, selectedTable, hovered]);
 
   const related = useMemo(() => {
     if (!focusTables.length) return null;
@@ -271,6 +274,23 @@ export function Canvas(props: Props) {
 
   const edgeHighlight = useCallback(
     (e: Edge, touches: boolean): Edge => {
+      if (selectedColumn) {
+        const tier = edgeFocusTier(e, selectedColumn);
+        const active = e.selected || tier === 'primary';
+        const highlightCls = edgeClassForTier(e, tier, !!e.selected);
+        return {
+          ...e,
+          animated: active && e.type !== 'fieldLineage' && !e.selected,
+          className: highlightCls,
+          data: {
+            ...e.data,
+            highlighted: active,
+            dimmed: tier === 'dimmed' && !e.selected,
+            muted: tier === 'secondary' && !e.selected,
+          },
+        };
+      }
+
       const active = e.selected || touches;
       const highlightCls =
         e.type === 'lineage'
@@ -295,7 +315,7 @@ export function Canvas(props: Props) {
         },
       };
     },
-    [focusTables.length],
+    [focusTables.length, selectedColumn],
   );
 
   // Arestas: PK/FK, linhagem L1 e L2 — reconstrói preservando seleção do usuário.
@@ -350,14 +370,15 @@ export function Canvas(props: Props) {
         ? `fl:${focusedFieldMapping.sourceTable}.${focusedFieldMapping.sourceColumn}->${focusedFieldMapping.targetTable}.${focusedFieldMapping.targetColumn}`
         : null;
       const fieldEdges: Edge[] = [];
-      if (fieldLineageVisible && (focusSet.size > 0 || focusedEdgeId)) {
+      if (fieldLineageVisible && (focusSet.size > 0 || focusedEdgeId || selectedColumn)) {
         for (const m of lineageFields) {
           const id = `fl:${m.sourceTable}.${m.sourceColumn}->${m.targetTable}.${m.targetColumn}`;
-          const inFocus =
-            focusSet.has(m.targetTable) ||
-            focusSet.has(m.sourceTable) ||
-            id === focusedEdgeId;
-          if (!inFocus) continue;
+          const visible = selectedColumn
+            ? m.targetTable === selectedColumn.table || m.sourceTable === selectedColumn.table
+            : focusSet.has(m.targetTable) ||
+              focusSet.has(m.sourceTable) ||
+              id === focusedEdgeId;
+          if (!visible) continue;
           fieldEdges.push({
             id,
             source: m.sourceTable,
@@ -396,7 +417,7 @@ export function Canvas(props: Props) {
     });
   }, [
     parsed.refs, parsed.tables, lineage, lineageFields, relationsVisible, showLineageEdges, fieldLineageVisible,
-    focusTables, focusedFieldMapping, positions, setEdges, onRemoveRef, onRemoveLineage,
+    focusTables, focusedFieldMapping, selectedColumn, positions, setEdges, onRemoveRef, onRemoveLineage,
     onRemoveFieldLineage, edgeHighlight,
   ]);
 

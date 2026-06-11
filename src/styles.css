@@ -1093,6 +1093,9 @@ body {
 .react-flow__edge.edge--dimmed:not(.selected) {
   opacity: 0.2;
 }
+.react-flow__edge.edge--muted:not(.selected) {
+  opacity: 0.35;
+}
 .react-flow__edge.selected {
   opacity: 1;
 }
