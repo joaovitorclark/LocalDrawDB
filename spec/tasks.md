@@ -72,9 +72,9 @@ Ordem de execução derivada de [`spec.md`](./spec.md) + [`plan.md`](./plan.md).
 - [x] Testes Vitest (overlap, layer, denso, performance)
 
 ## Fase v11-04 — Export input com `@map` (L2)
-- [ ] `spec/v11-04-export-input-field-map.md`
-- [ ] Testes round-trip Oracle com `demo_lakehouse_complex.sql` (`line_id`, renomeações)
-- [ ] Auditar `mergeModel` / persistência `LineageFields` no import
-- [ ] Aviso UI no export input quando silver sem mapeamentos L2
-- [ ] Foco visual por coluna no canvas (AC6–AC7)
+- [x] `spec/v11-04-export-input-field-map.md`
+- [x] Testes round-trip Oracle com `demo_lakehouse_complex.sql` (`line_id`, renomeações)
+- [x] Auditar `mergeModel` / persistência `LineageFields` no import
+- [x] Aviso UI no export input quando silver sem mapeamentos L2
+- [x] Foco visual por coluna no canvas (AC6–AC7)
 - [ ] (Opcional) Inferência assistida de `@map` a partir de `@origen` + nomes iguais
