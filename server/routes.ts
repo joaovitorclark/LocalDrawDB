@@ -79,6 +79,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       dbml: modelToDbml(merged),
       imported,
+      lineageFieldCount: merged.lineageFields?.length ?? 0,
       warnings: warnings.length ? warnings : undefined,
     };
   });

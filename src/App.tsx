@@ -23,6 +23,7 @@ import { isCompleteTableId } from './dsl/edit';
 import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
+import { exportInputL2Warning } from './exportWarnings';
 import * as api from './api';
 import type { LineageLink } from './api';
 
@@ -606,13 +607,25 @@ export default function App() {
 
   const handleImport = () =>
     run('Importando', async () => {
-      const { dbml: merged, imported, warnings } = await api.importFromInput(dbml);
+      const { dbml: merged, imported, warnings, lineageFieldCount } = await api.importFromInput(dbml);
       setDbml(merged);
       setImportWarnings(warnings ?? []);
       const warnNote = warnings?.length ? ` — ${warnings.length} aviso(s) no painel Problemas` : '';
+      const l2Note =
+        lineageFieldCount != null && lineageFieldCount > 0
+          ? ` — ${lineageFieldCount} mapeamento(s) L2`
+          : '';
       return imported.length
-        ? `Importado: ${imported.join(', ')}${warnNote}`
+        ? `Importado: ${imported.join(', ')}${l2Note}${warnNote}`
         : 'Nenhum .sql em data/input/';
+    });
+
+  const handleExportInput = (dialect: 'spark' | 'oracle', label: string) =>
+    run(`Exportando ${label}`, async () => {
+      const l2Warn = exportInputL2Warning(activeModel.tables, activeModel.lineageFields ?? []);
+      const result = await api.exportInput(dbml, dialect);
+      const files = result.files.join(', ');
+      return l2Warn ? `${l2Warn} — Gerado: ${files}` : `Gerado: ${files}`;
     });
 
   const handleExport = (
@@ -673,12 +686,8 @@ export default function App() {
         </button>
         <span className="sep" />
         <button onClick={handleImport}>Importar (input/)</button>
-        <button onClick={() => handleExport('input Spark', (d) => api.exportInput(d, 'spark'))}>
-          Export input (Spark)
-        </button>
-        <button onClick={() => handleExport('input Oracle', (d) => api.exportInput(d, 'oracle'))}>
-          Export input (Oracle)
-        </button>
+        <button onClick={() => handleExportInput('spark', 'input Spark')}>Export input (Spark)</button>
+        <button onClick={() => handleExportInput('oracle', 'input Oracle')}>Export input (Oracle)</button>
         <button onClick={() => handleExport('ddl', api.exportDdl)}>Export DDL</button>
         <button onClick={() => handleExport('dbt', api.exportDbt)}>Export dbt</button>
         <button onClick={() => handleExport('erwin', api.exportErwin)}>Export erwin</button>
