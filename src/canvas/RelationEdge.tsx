@@ -2,15 +2,18 @@ import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from '
 import type { Cardinality } from '../dsl/parse';
 
 export type RelationEdgeData = {
-  fromRel: Cardinality; // cardinalidade no lado source
-  toRel: Cardinality; // cardinalidade no lado target
+  fromRel: Cardinality;
+  toRel: Cardinality;
   highlighted?: boolean;
+  dimmed?: boolean;
+  muted?: boolean;
+  /** Foco por coluna: mesma espessura de aresta selecionada, sem neon. */
+  emphasized?: boolean;
   onRemove?: () => void;
 };
 
 const markerFor = (rel: Cardinality) => (rel === '*' ? 'url(#cf-many)' : 'url(#cf-one)');
 
-// Aresta com marcadores pé-de-galinha, estilo de seleção e botão ✕ (drawio-style).
 export function RelationEdge({
   sourceX,
   sourceY,
@@ -32,6 +35,7 @@ export function RelationEdge({
   });
 
   const active = selected || data?.highlighted;
+  const emphasis = selected || data?.emphasized;
 
   return (
     <>
@@ -41,7 +45,7 @@ export function RelationEdge({
         markerEnd={markerFor(data?.toRel ?? '1')}
         style={{
           stroke: active ? 'var(--brand-green)' : 'var(--brand-navy)',
-          strokeWidth: selected ? 3 : data?.highlighted ? 2.5 : 1.5,
+          strokeWidth: emphasis ? 3 : data?.highlighted ? 2.5 : 1.5,
         }}
       />
       {selected && data?.onRemove && (

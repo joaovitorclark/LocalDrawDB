@@ -3,6 +3,9 @@ import { BaseEdge, getSmoothStepPath, type EdgeProps } from 'reactflow';
 export type FieldLineageEdgeData = {
   highlighted?: boolean;
   dimmed?: boolean;
+  muted?: boolean;
+  /** Foco por coluna: linha contínua como aresta selecionada, sem glow. */
+  emphasized?: boolean;
   label?: string;
   mapping?: {
     sourceTable: string;
@@ -21,6 +24,7 @@ export function FieldLineageEdge({
   });
   const active = selected || data?.highlighted;
   const dimmed = data?.dimmed && !selected;
+  const solid = selected || !!data?.emphasized || (active && !data?.muted);
   return (
     <>
       {selected && (
@@ -41,8 +45,8 @@ export function FieldLineageEdge({
         className={selected ? 'field-lineage-edge__core' : undefined}
         style={{
           stroke: selected ? '#f5d0fe' : active ? '#6d28d9' : '#a78bfa',
-          strokeWidth: selected ? 3.5 : active ? 2.25 : 1.25,
-          strokeDasharray: selected ? undefined : '5 4',
+          strokeWidth: selected ? 3.5 : data?.emphasized ? 3.5 : active ? 2.25 : 1.25,
+          strokeDasharray: solid ? undefined : '5 4',
           strokeLinecap: selected ? 'round' : undefined,
           strokeLinejoin: selected ? 'round' : undefined,
           opacity: dimmed ? 0.12 : selected ? 1 : 0.9,

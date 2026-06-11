@@ -10,8 +10,18 @@ type Props = {
   onAutolayout?: () => void;
 };
 
+const COLLAPSE_KEY = 'localdrawdb.layersPanelCollapsed';
+
+function loadCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutolayout }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [tableQuery, setTableQuery] = useState('');
   const hiddenLayers = useInteraction((s) => s.hiddenLayers);
   const toggleLayer = useInteraction((s) => s.toggleLayer);
@@ -33,12 +43,29 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
     return sorted.filter((t) => t.id.toLowerCase().includes(q));
   }, [tables, tableQuery]);
 
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   return (
     <div className={`layers-panel ${collapsed ? 'is-collapsed' : ''}`}>
-      <button className="layers-panel__collapse" onClick={() => setCollapsed((c) => !c)}>
-        {collapsed ? '◂ Painel' : '▸'}
+      <button
+        type="button"
+        className="layers-panel__collapse"
+        onClick={toggleCollapsed}
+        title={collapsed ? 'Expandir painel' : 'Recolher painel'}
+      >
+        {collapsed ? '◂ Camadas' : '▾ Camadas e tabelas'}
       </button>
-      {collapsed ? null : (
+      {!collapsed && (
         <>
           <div className="layers-panel__title">Camadas</div>
           {layers.map((l) => (

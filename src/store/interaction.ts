@@ -58,7 +58,11 @@ export const useInteraction = create<InteractionState>((set) => ({
   hoveredTableId: null,
   setHovered: (id) => set({ hoveredTableId: id }),
   selectedColumn: null,
-  selectColumn: (sel) => set({ selectedColumn: sel }),
+  selectColumn: (sel) =>
+    set({
+      selectedColumn: sel,
+      ...(sel ? { selectedTable: null, selectedTableIds: [], selectedGroup: null } : {}),
+    }),
   selectedTable: null,
   selectedTableIds: [],
   selectTable: (id) =>

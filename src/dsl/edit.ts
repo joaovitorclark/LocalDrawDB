@@ -120,6 +120,58 @@ export function setColumnSetting(
   );
 }
 
+function formatNoteLine(note: string): string {
+  return `  Note: '${note.replace(/'/g, "\\'")}'`;
+}
+
+function upsertNoteLine(blockText: string, note: string): string {
+  const lines = blockText.split('\n');
+  const trimmed = note.trim();
+  const noteIdx = lines.findIndex((l) => /^\s*Note\s*:/i.test(l));
+  if (trimmed) {
+    const noteLine = formatNoteLine(trimmed);
+    if (noteIdx >= 0) lines[noteIdx] = noteLine;
+    else {
+      let closeIdx = -1;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].trim() === '}') {
+          closeIdx = i;
+          break;
+        }
+      }
+      lines.splice(closeIdx >= 0 ? closeIdx : lines.length, 0, noteLine);
+    }
+  } else if (noteIdx >= 0) {
+    lines.splice(noteIdx, 1);
+  }
+  return lines.join('\n');
+}
+
+/** Atualiza `Note:` no bloco Table. */
+export function setTableNote(src: string, table: string, note: string): string {
+  return mutateTableBlock(src, table, (block) => upsertNoteLine(block, note));
+}
+
+/** Atualiza `Note:` no bloco Records da tabela. */
+export function setRecordsNote(src: string, table: string, note: string): string {
+  const blocks = splitDbmlBlocks(src);
+  let found = false;
+  const out = blocks.map((b) => {
+    if (b.type !== 'records' || !tableMatches(b.name, table)) return b.text;
+    found = true;
+    return upsertNoteLine(b.text, note);
+  });
+  return found ? out.join('\n') : src;
+}
+
+/** Prefere Records se existir bloco; senão altera Note da Table. */
+export function setTableOrRecordsNote(src: string, table: string, note: string): string {
+  const hasRecords = splitDbmlBlocks(src).some(
+    (b) => b.type === 'records' && tableMatches(b.name, table),
+  );
+  return hasRecords ? setRecordsNote(src, table, note) : setTableNote(src, table, note);
+}
+
 export function renameColumn(src: string, table: string, oldName: string, newName: string): string {
   return mutateTableBlock(src, table, (block) =>
     block
