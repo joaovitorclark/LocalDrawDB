@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useInteraction } from '../store/interaction';
 import { getColumnSettings, setColumnSetting, type ColSettings } from '../dsl/edit';
 import type { TableView } from '../dsl/parse';
+import { useDraggablePanel } from './useDraggablePanel';
 
 type Props = {
   dbml: string;
@@ -11,10 +12,22 @@ type Props = {
   onGoToColumn?: (table: string, column: string) => void;
 };
 
+const COLLAPSE_KEY = 'localdrawdb.columnPanelCollapsed';
+
+function loadCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColumn }: Props) {
   const sel = useInteraction((s) => s.selectedColumn);
   const selectColumn = useInteraction((s) => s.selectColumn);
   const [nameDraft, setNameDraft] = useState('');
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
+  const { panelRef, dragStyle, onDragStart } = useDraggablePanel('localdrawdb.columnPanelPos');
 
   const table = useMemo(
     () => (sel ? tables.find((t) => t.id === sel.table) : undefined),
@@ -58,85 +71,122 @@ export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColum
     setNameDraft(v);
   };
 
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   const refValue = settings.refTarget ?? '';
 
   return (
-    <div className="column-panel">
+    <div
+      ref={panelRef}
+      className={`column-panel ${collapsed ? 'is-collapsed' : ''}`}
+      style={dragStyle}
+    >
       <div className="column-panel__head">
-        <strong>{sel.column}</strong>
+        <button
+          type="button"
+          className="column-panel__grip"
+          title="Arrastar painel"
+          aria-label="Arrastar painel"
+          onPointerDown={onDragStart}
+        >
+          ⠿
+        </button>
+        <button
+          type="button"
+          className="column-panel__collapse"
+          onClick={toggleCollapsed}
+          title={collapsed ? 'Expandir editor' : 'Recolher editor'}
+        >
+          {collapsed ? '▸' : '▾'}
+        </button>
+        <strong className="column-panel__col">{sel.column}</strong>
         <span className="column-panel__tbl">{sel.table}</span>
         <button className="column-panel__close" onClick={() => selectColumn(null)}>
           ✕
         </button>
       </div>
-      {compositeHint && (
-        <p className="column-panel__hint">PK composta: {compositeHint}</p>
+      {!collapsed && (
+        <>
+          {compositeHint && (
+            <p className="column-panel__hint">PK composta: {compositeHint}</p>
+          )}
+          <label className="column-panel__field">
+            Nome
+            <input
+              type="text"
+              value={nameDraft || sel.column}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename();
+              }}
+            />
+          </label>
+          {onGoToColumn && (
+            <button
+              type="button"
+              className="column-panel__dbml-btn"
+              onClick={() => onGoToColumn(sel.table, sel.column)}
+            >
+              Editar no DBML
+            </button>
+          )}
+          <label className="column-panel__row">
+            <input type="checkbox" checked={!!settings.pk} onChange={(e) => apply({ pk: e.target.checked })} />
+            Primary key
+          </label>
+          <label className="column-panel__field">
+            Referência (FK)
+            <select
+              value={refValue}
+              onChange={(e) => apply({ refTarget: e.target.value || null })}
+            >
+              <option value="">— nenhuma —</option>
+              {refOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="column-panel__row">
+            <input
+              type="checkbox"
+              checked={!!settings.notNull}
+              onChange={(e) => apply({ notNull: e.target.checked })}
+            />
+            Not null
+          </label>
+          <label className="column-panel__field">
+            Note
+            <input
+              type="text"
+              value={settings.note ?? ''}
+              onChange={(e) => apply({ note: e.target.value })}
+              placeholder="descrição"
+            />
+          </label>
+          <label className="column-panel__field">
+            Default
+            <input
+              type="text"
+              value={settings.default ?? ''}
+              onChange={(e) => apply({ default: e.target.value })}
+              placeholder="ex.: 0 ou 'x'"
+            />
+          </label>
+        </>
       )}
-      <label className="column-panel__field">
-        Nome
-        <input
-          type="text"
-          value={nameDraft || sel.column}
-          onChange={(e) => setNameDraft(e.target.value)}
-          onBlur={commitRename}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitRename();
-          }}
-        />
-      </label>
-      {onGoToColumn && (
-        <button
-          type="button"
-          className="column-panel__dbml-btn"
-          onClick={() => onGoToColumn(sel.table, sel.column)}
-        >
-          Editar no DBML
-        </button>
-      )}
-      <label className="column-panel__row">
-        <input type="checkbox" checked={!!settings.pk} onChange={(e) => apply({ pk: e.target.checked })} />
-        Primary key
-      </label>
-      <label className="column-panel__field">
-        Referência (FK)
-        <select
-          value={refValue}
-          onChange={(e) => apply({ refTarget: e.target.value || null })}
-        >
-          <option value="">— nenhuma —</option>
-          {refOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="column-panel__row">
-        <input
-          type="checkbox"
-          checked={!!settings.notNull}
-          onChange={(e) => apply({ notNull: e.target.checked })}
-        />
-        Not null
-      </label>
-      <label className="column-panel__field">
-        Note
-        <input
-          type="text"
-          value={settings.note ?? ''}
-          onChange={(e) => apply({ note: e.target.value })}
-          placeholder="descrição"
-        />
-      </label>
-      <label className="column-panel__field">
-        Default
-        <input
-          type="text"
-          value={settings.default ?? ''}
-          onChange={(e) => apply({ default: e.target.value })}
-          placeholder="ex.: 0 ou 'x'"
-        />
-      </label>
     </div>
   );
 }

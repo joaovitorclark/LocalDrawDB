@@ -240,6 +240,7 @@ export function Canvas(props: Props) {
     ({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
       const ids = selNodes.filter((n) => n.type === 'table').map((n) => n.id);
       setSelectedTableIds(ids);
+      if (ids.length) selectColumn(null);
 
       if (!lineageMode) return;
 
@@ -253,7 +254,7 @@ export function Canvas(props: Props) {
         setFocusedFieldMapping(null);
       }
     },
-    [lineageMode, setSelectedTableIds, selectFieldLineageMapping, setFocusedFieldMapping],
+    [lineageMode, setSelectedTableIds, selectColumn, selectFieldLineageMapping, setFocusedFieldMapping],
   );
 
   /** Preserva seleção e handles ao reconstruir arestas (evita perder clique para apagar). */
@@ -280,13 +281,14 @@ export function Canvas(props: Props) {
         const highlightCls = edgeClassForTier(e, tier, !!e.selected);
         return {
           ...e,
-          animated: active && e.type !== 'fieldLineage' && !e.selected,
+          animated: false,
           className: highlightCls,
           data: {
             ...e.data,
             highlighted: active,
             dimmed: tier === 'dimmed' && !e.selected,
             muted: tier === 'secondary' && !e.selected,
+            emphasized: tier === 'primary' && !e.selected,
           },
         };
       }
@@ -312,6 +314,7 @@ export function Canvas(props: Props) {
           ...e.data,
           highlighted: focusTables.length || e.selected ? active : false,
           dimmed: focusTables.length || e.selected ? !active : false,
+          emphasized: false,
         },
       };
     },

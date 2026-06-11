@@ -11,10 +11,11 @@ function shortName(id: string): string {
 
 export function SelectionBar({ onRemoveTables }: Props) {
   const selectedTableIds = useInteraction((s) => s.selectedTableIds);
+  const selectedColumn = useInteraction((s) => s.selectedColumn);
   const setSelectedTableIds = useInteraction((s) => s.setSelectedTableIds);
   const clearCanvasSelection = useInteraction((s) => s.clearCanvasSelection);
 
-  if (!selectedTableIds.length) return null;
+  if (!selectedTableIds.length || selectedColumn) return null;
 
   const removeOne = (id: string) => {
     const next = selectedTableIds.filter((x) => x !== id);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendRef, refExists, removeRef, removeTable, setColumnSetting, getColumnSettings,
-  renameColumn, addColumn, renameTable,
+  renameColumn, addColumn, renameTable, setTableNote, setRecordsNote, setTableOrRecordsNote,
 } from '../edit';
 import { parseDbml } from '../parse';
 
@@ -218,5 +218,21 @@ Records raw.orders (id, customer_id) {
     const model = parseDbml(out);
     expect(model.tables.map((t) => t.id)).toEqual(['raw.customers']);
     expect(model.refs).toHaveLength(0);
+  });
+});
+
+describe('notas de tabela e records', () => {
+  it('atualiza Note no bloco Table', () => {
+    const out = setTableNote(SRC, 'loja.cliente', 'clientes ativos');
+    expect(out).toContain("Note: 'clientes ativos'");
+    expect(reparses(out)).toBe(true);
+  });
+
+  it('atualiza Note no bloco Records quando existir', () => {
+    const src = `${SRC}\nRecords loja.cliente (id) {\n  Note: 'antiga'\n  1\n}\n`;
+    const out = setRecordsNote(src, 'loja.cliente', 'nova nota');
+    expect(out).toContain("Note: 'nova nota'");
+    expect(out).not.toContain("'antiga'");
+    expect(setTableOrRecordsNote(src, 'loja.cliente', 'via helper')).toContain("Note: 'via helper'");
   });
 });

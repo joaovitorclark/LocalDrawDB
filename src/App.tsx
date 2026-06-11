@@ -811,7 +811,16 @@ export default function App() {
               }}
             />
           </CanvasActionsCtx.Provider>
-          <RecordsPanel records={activeModel.records} tables={activeModel.tables} />
+          <RecordsPanel
+            records={activeModel.records}
+            tables={activeModel.tables}
+            dbml={dbml}
+            onApply={(next) => {
+              prevDbmlRef.current = next;
+              setDbml(next);
+              setSaveState('dirty');
+            }}
+          />
         </section>
       </main>
     </div>
