@@ -61,7 +61,7 @@ Ordem de execução derivada de [`spec.md`](./spec.md) + [`plan.md`](./plan.md).
 - [x] `spec/v7-constraints-fk.md`
 - [x] `extractForeignKeysFromStmt` — FK composta + multiline + CONSTRAINT nomeada
 - [x] Warnings de aridade divergente → API import + painel Problemas
-- [x] Testes `sqlImport.test.ts`; `@fk` redundantes removidos de `tmp/autorizacao.sql`
+- [x] Testes `sqlImport.test.ts`; `@fk` redundantes removidos de fixture de teste composta
 
 ## Fase v8 — Autolayout sem sobreposição
 - [x] `spec/v8-autolayout-no-overlap.md`
@@ -70,3 +70,11 @@ Ordem de execução derivada de [`spec.md`](./spec.md) + [`plan.md`](./plan.md).
 - [x] `resolveOverlaps` + dagre adaptativo
 - [x] `fitView` após Organizar canvas
 - [x] Testes Vitest (overlap, layer, denso, performance)
+
+## Fase v11-04 — Export input com `@map` (L2)
+- [ ] `spec/v11-04-export-input-field-map.md`
+- [ ] Testes round-trip Oracle com `demo_lakehouse_complex.sql` (`line_id`, renomeações)
+- [ ] Auditar `mergeModel` / persistência `LineageFields` no import
+- [ ] Aviso UI no export input quando silver sem mapeamentos L2
+- [ ] Foco visual por coluna no canvas (AC6–AC7)
+- [ ] (Opcional) Inferência assistida de `@map` a partir de `@origen` + nomes iguais

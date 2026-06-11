@@ -32,3 +32,4 @@ Export reverso para `data/input/` no formato Spark e Oracle, reimportável via *
 - AC1: Export Spark gera arquivo reimportável em `data/input/`
 - AC2: Export Oracle gera SQL com metadados equivalentes
 - AC3: PK composta, FKs e INSERT preservados no round-trip básico
+- AC4: `@map` inline (L2) preservado quando `LineageFields` existe no DBML — ver [`v11-04-export-input-field-map.md`](./v11-04-export-input-field-map.md)

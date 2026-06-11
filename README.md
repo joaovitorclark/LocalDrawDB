@@ -65,6 +65,14 @@ Blocos `Records` preservados; painel **Dados (amostra)** filtra por tabela/grupo
 - **Auto-save** (toggle verde/vermelho na toolbar): salva automaticamente após 1,5s quando há alterações pendentes (desligado por padrão).
 - Estados: **Salvando… / Salvo ✓ / ● Não salvo / ⚠ Falha ao salvar**.
 
+## Contrato de dados
+
+O repositório público contém **apenas** fixtures genéricas em [`examples/input/`](examples/input/) — principalmente [`demo_lakehouse_complex.sql`](examples/input/demo_lakehouse_complex.sql). Não versionamos modelos ou SQLs de domínios proprietários (ex.: autorização/TISS).
+
+- **Copie** os exemplos para `data/input/` antes de importar.
+- **Seu modelo** vive em `data/project.dbml` + `data/canvas.json` (gitignored).
+- Trabalho local com dados sensíveis: branch `local/wip` ou pasta `data/` — **sem push**.
+
 ## Pasta `data/` (nunca versionada)
 
 ```
