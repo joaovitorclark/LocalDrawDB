@@ -23,6 +23,7 @@ import { isCompleteTableId } from './dsl/edit';
 import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
+import { ExportMenu } from './ExportMenu';
 import { exportInputL2Warning } from './exportWarnings';
 import * as api from './api';
 import type { LineageLink } from './api';
@@ -620,18 +621,17 @@ export default function App() {
         : 'Nenhum .sql em data/input/';
     });
 
-  const handleExportInput = (dialect: 'spark' | 'oracle', label: string) =>
-    run(`Exportando ${label}`, async () => {
-      const l2Warn = exportInputL2Warning(activeModel.tables, activeModel.lineageFields ?? []);
-      const result = await api.exportInput(dbml, dialect);
+  const handleExportOption = (opt: api.ExportOption) => {
+    run(`Exportando ${opt.label}`, async () => {
+      const result = await api.exportFormat(dbml, opt.format, opt.dialect);
       const files = result.files.join(', ');
-      return l2Warn ? `${l2Warn} — Gerado: ${files}` : `Gerado: ${files}`;
+      if (opt.format === 'localdrawdb') {
+        const l2Warn = exportInputL2Warning(activeModel.tables, activeModel.lineageFields ?? []);
+        return l2Warn ? `${l2Warn} — Gerado: ${files}` : `Gerado: ${files}`;
+      }
+      return `Gerado: ${files}`;
     });
-
-  const handleExport = (
-    kind: string,
-    fn: (d: string) => Promise<{ files: string[] }>,
-  ) => run(`Exportando ${kind}`, async () => `Gerado: ${(await fn(dbml)).files.join(', ')}`);
+  };
 
   const handlePng = () =>
     run('Exportando PNG', async () => {
@@ -686,12 +686,7 @@ export default function App() {
         </button>
         <span className="sep" />
         <button onClick={handleImport}>Importar (input/)</button>
-        <button onClick={() => handleExportInput('spark', 'input Spark')}>Export input (Spark)</button>
-        <button onClick={() => handleExportInput('oracle', 'input Oracle')}>Export input (Oracle)</button>
-        <button onClick={() => handleExport('ddl', api.exportDdl)}>Export DDL</button>
-        <button onClick={() => handleExport('dbt', api.exportDbt)}>Export dbt</button>
-        <button onClick={() => handleExport('erwin', api.exportErwin)}>Export erwin</button>
-        <button onClick={() => handleExport('mermaid', api.exportMermaid)}>Export Mermaid</button>
+        <ExportMenu options={api.EXPORT_OPTIONS} onExport={handleExportOption} />
         <button onClick={handlePng}>Export PNG</button>
         <span className="sep" />
         <button

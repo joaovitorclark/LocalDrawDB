@@ -17,6 +17,8 @@ cp examples/input/demo_lakehouse_complex.sql data/input/
 
 Depois use **Importar (input/)** na toolbar.
 
+**Export LocalDrawDB:** na toolbar, escolha *LocalDrawDB (Spark)* ou *LocalDrawDB (Oracle)* no menu **Exportar** — gera `data/output/localdrawdb/model_spark.sql` ou `model_oracle.sql`, reimportável via **Importar (input/)** (copie para `data/input/` se quiser mesclar de volta).
+
 ## Formato dos `.sql` em `data/input/`
 
 Coloque seus scripts exportados do banco (Oracle, Spark/Delta, ANSI). O import mescla tudo no DBML do projeto.

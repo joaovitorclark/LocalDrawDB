@@ -1,4 +1,4 @@
-// E2E pela UI: importa de data/input/, exporta DDL/dbt/erwin e confere o status.
+// E2E pela UI: importa de data/input/, exporta formatos e confere o status.
 import { chromium } from 'playwright-core';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -13,7 +13,6 @@ await page.goto(URL, { waitUntil: 'networkidle' });
 await page.waitForSelector('.table-node');
 const before = await page.locator('.table-node').count();
 
-// Importar de data/input/
 await page.getByRole('button', { name: 'Importar (input/)' }).click();
 await page.waitForFunction(
   () => document.querySelector('.status')?.textContent?.startsWith('Importado'),
@@ -23,22 +22,23 @@ await page.waitForTimeout(500);
 const after = await page.locator('.table-node').count();
 const importStatus = await page.locator('.status').innerText();
 
-// Exportações
-async function clickAndStatus(name) {
-  await page.getByRole('button', { name }).click();
+async function exportWithFormat(optionLabel) {
+  await page.getByRole('button', { name: 'Exportar' }).click();
+  await page.getByRole('menuitem', { name: optionLabel }).click();
   await page.waitForFunction(
     () => document.querySelector('.status')?.textContent?.startsWith('Gerado'),
     { timeout: 10000 },
   );
   return page.locator('.status').innerText();
 }
-const ddl = await clickAndStatus('Export DDL');
-const dbt = await clickAndStatus('Export dbt');
-const erwin = await clickAndStatus('Export erwin');
+
+const sparkDdl = await exportWithFormat('Spark DDL');
+const dbt = await exportWithFormat('dbt');
+const erwin = await exportWithFormat('erwin (ANSI)');
 
 console.log('tabelas antes/depois do import:', before, '->', after);
 console.log('status import:', importStatus);
-console.log('ddl:', ddl);
+console.log('spark ddl:', sparkDdl);
 console.log('dbt:', dbt);
 console.log('erwin:', erwin);
 console.log('erros:', errors.length ? errors : 'nenhum');
@@ -48,7 +48,7 @@ await browser.close();
 const ok =
   after > before &&
   importStatus.includes('canal_venda') &&
-  ddl.includes('Gerado') &&
+  sparkDdl.includes('Gerado') &&
   dbt.includes('dbt') &&
   erwin.includes('erwin') &&
   errors.length === 0;

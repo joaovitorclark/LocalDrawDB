@@ -116,3 +116,47 @@ export function typeToAnsi(col: Column): string {
   if ((base === 'DECIMAL') && col.args) return `DECIMAL(${col.args})`;
   return base;
 }
+
+/** Tipo Oracle (DDL limpo). */
+export function typeToOracle(col: Column): string {
+  const t = col.type.toLowerCase();
+  if (t === 'string' || t === 'varchar') return `VARCHAR2(${col.args || 255})`;
+  if (t === 'bigint') return col.args ? `NUMBER(${col.args})` : 'NUMBER(19)';
+  if (t === 'int' || t === 'integer') return col.args ? `NUMBER(${col.args})` : 'NUMBER(10)';
+  if (t === 'decimal' || t === 'numeric') return col.args ? `NUMBER(${col.args})` : 'NUMBER(18,2)';
+  if (t === 'double' || t === 'float') return 'NUMBER';
+  if (t === 'boolean') return 'NUMBER(1)';
+  if (t === 'timestamp') return 'TIMESTAMP';
+  if (t === 'date') return 'DATE';
+  if (t === 'varchar2') return `VARCHAR2(${col.args || 255})`;
+  if (t === 'number') return col.args ? `NUMBER(${col.args})` : 'NUMBER';
+  const upper = col.type.toUpperCase();
+  return col.args ? `${upper}(${col.args})` : upper;
+}
+
+/** Tipo PostgreSQL (DDL limpo). */
+export function typeToPostgres(col: Column): string {
+  const t = col.type.toLowerCase();
+  if (t === 'string' || t === 'varchar') return col.args ? `VARCHAR(${col.args})` : 'TEXT';
+  if (t === 'bigint') return 'BIGINT';
+  if (t === 'int' || t === 'integer') return 'INTEGER';
+  if (t === 'smallint') return 'SMALLINT';
+  if (t === 'tinyint') return 'SMALLINT';
+  if (t === 'decimal' || t === 'numeric') return col.args ? `NUMERIC(${col.args})` : 'NUMERIC(18,2)';
+  if (t === 'double') return 'DOUBLE PRECISION';
+  if (t === 'float') return 'REAL';
+  if (t === 'boolean') return 'BOOLEAN';
+  if (t === 'timestamp') return 'TIMESTAMP';
+  if (t === 'date') return 'DATE';
+  if (t === 'varchar2') return col.args ? `VARCHAR(${col.args})` : 'TEXT';
+  if (t === 'number') return col.args ? `NUMERIC(${col.args})` : 'NUMERIC';
+  const upper = col.type.toUpperCase();
+  return col.args ? `${upper}(${col.args})` : upper;
+}
+
+/** Colunas da PK (simples ou composta). */
+export function pkCols(t: Table): string[] {
+  const composite = (t.compositePks ?? []).find((g) => g.length > 1);
+  if (composite) return composite;
+  return t.columns.filter((c) => c.pk).map((c) => c.name);
+}

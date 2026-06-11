@@ -35,7 +35,12 @@ npm start          # http://localhost:5174
 - **Organize**: reordena o DBML em `tabelas → refs → records → lineage` (preserva comentários).
 - **+ Tabela / + Metadados**: nova tabela ou snippet de colunas lakehouse padrão.
 - **Importar (input/)**: mescla `.sql` de `data/input/` (Spark, Oracle, `@layer`/`@group`/`@note`/`@fk`, `COMMENT ON`, PK composta). Exemplo versionado em [`examples/input/`](examples/input/) — copie para `data/input/`.
-- **Export DDL / dbt / erwin / Mermaid / PNG**: artefatos em `data/output/`.
+- **Exportar** (menu + botão): escolha o formato e gera artefatos em `data/output/`:
+  - **LocalDrawDB (Spark/Oracle)** — SQL reimportável com metadados (`@map`, `@layer`, `INSERT`)
+  - **Spark DDL** — `CREATE TABLE` Delta por schema
+  - **Oracle DDL / PostgreSQL DDL** — `CREATE TABLE` + `ALTER TABLE` FK (sem metadados)
+  - **erwin (ANSI)**, **dbt**, **Mermaid**
+- **Export PNG**: download + `data/output/diagram.png`
 
 ### Interações no canvas
 
@@ -79,7 +84,7 @@ O repositório público contém **apenas** fixtures genéricas em [`examples/inp
 data/
 ├─ input/         # seus .sql locais (não versionados)
 examples/input/   # demo_lakehouse.sql, demo_lakehouse_complex.sql + README (copiar para data/input/)
-├─ output/        # DDL, dbt, erwin, Mermaid, PNG
+├─ output/        # localdrawdb/, spark/, oracle/, postgres/, dbt, erwin, Mermaid, PNG
 ├─ project.dbml   # fonte de verdade do modelo
 └─ canvas.json    # posições, cores, grupos colapsados
 ```
