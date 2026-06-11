@@ -1,5 +1,5 @@
 // Export reverso: modelo canônico → SQL no formato data/input/ (Spark ou Oracle).
-import { qualifiedName, typeToSpark } from './model.ts';
+import { qualifiedName, pkCols, typeToOracle, typeToSpark } from './model.ts';
 import type { Column, FieldLineageEntry, Model, Ref, Table } from './model.ts';
 
 export type InputDialect = 'spark' | 'oracle' | 'auto';
@@ -20,34 +20,11 @@ function resolveDialect(table: Table, requested: InputDialect): 'spark' | 'oracl
   return 'spark';
 }
 
-function typeToOracle(col: Column): string {
-  const t = col.type.toLowerCase();
-  if (t === 'string' || t === 'varchar') return `VARCHAR2(${col.args || 255})`;
-  if (t === 'bigint') return col.args ? `NUMBER(${col.args})` : 'NUMBER(19)';
-  if (t === 'int' || t === 'integer') return col.args ? `NUMBER(${col.args})` : 'NUMBER(10)';
-  if (t === 'decimal' || t === 'numeric') return col.args ? `NUMBER(${col.args})` : 'NUMBER(18,2)';
-  if (t === 'double' || t === 'float') return 'NUMBER';
-  if (t === 'boolean') return 'NUMBER(1)';
-  if (t === 'timestamp') return 'TIMESTAMP';
-  if (t === 'date') return 'DATE';
-  if (t === 'varchar2') return `VARCHAR2(${col.args || 255})`;
-  if (t === 'number') return col.args ? `NUMBER(${col.args})` : 'NUMBER';
-  const upper = col.type.toUpperCase();
-  return col.args ? `${upper}(${col.args})` : upper;
-}
-
 function sqlQuote(val: string): string {
   if (/^-?\d+(\.\d+)?$/.test(val)) return val;
   if (/^(true|false|null)$/i.test(val)) return val.toUpperCase();
   if (/^TIMESTAMP\s+'/i.test(val)) return val;
   return `'${val.replace(/'/g, "''")}'`;
-}
-
-function pkCols(t: Table): string[] {
-  const composite = (t.compositePks ?? []).find((g) => g.length > 1);
-  if (composite) return composite;
-  const singles = t.columns.filter((c) => c.pk).map((c) => c.name);
-  return singles;
 }
 
 function refsForTable(model: Model, t: Table): Ref[] {

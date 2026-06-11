@@ -2,6 +2,12 @@
 
 Estes arquivos ficam no repositório em `examples/input/`. O app importa de **`data/input/`** (pasta local, no `.gitignore`).
 
+## Contrato de dados
+
+- **Fixtures versionadas:** somente `demo_lakehouse.sql` e `demo_lakehouse_complex.sql` (lakehouse genérico).
+- **Não commitar** SQLs de domínios proprietários — mantenha-os em `data/input/` local.
+- Specs, testes e docs do repo referenciam apenas estas demos.
+
 ```bash
 mkdir -p data/input
 cp examples/input/demo_lakehouse.sql data/input/
@@ -10,6 +16,8 @@ cp examples/input/demo_lakehouse_complex.sql data/input/
 ```
 
 Depois use **Importar (input/)** na toolbar.
+
+**Export LocalDrawDB:** na toolbar, escolha *LocalDrawDB (Spark)* ou *LocalDrawDB (Oracle)* no menu **Exportar** — gera `data/output/localdrawdb/model_spark.sql` ou `model_oracle.sql`, reimportável via **Importar (input/)** (copie para `data/input/` se quiser mesclar de volta).
 
 ## Formato dos `.sql` em `data/input/`
 

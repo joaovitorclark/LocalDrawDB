@@ -1,0 +1,31 @@
+---
+description: Impede commit de dados proprietários (domínio autorização/TISS) no repositório público
+alwaysApply: true
+---
+
+# Contrato de dados — LocalDrawDB
+
+## Proibido commitar
+
+- Domínio autorização/TISS: tabelas `ts_000009_*`, `fato_autorizacao*`, dims desse domínio
+- `project.dbml` real (modelo do usuário)
+- SQLs de input/output desse domínio (`examples/input/autorizacao*.sql`, exports locais)
+- Pasta `tmp/*` com artefatos de domínio
+- Scripts/docs acoplados a esses dados (`scripts/generate-lineage-fields.ts`)
+
+## Fixture canônica do repo
+
+Somente exemplos genéricos versionados:
+
+- `examples/input/demo_lakehouse_complex.sql` (principal)
+- `examples/input/demo_lakehouse.sql` (legado simples)
+
+## Trabalho local
+
+- Modelo e SQLs proprietários em `data/` (gitignored) ou branch `local/wip`
+- **Nunca** fazer push de `local/wip` nem de artefatos em `data/`
+
+## Specs, testes e README
+
+- Zero menção a autorização, `tmp/autorizacao*`, ou fixtures proprietárias
+- Usar nomes genéricos (`raw.erp_orders`, `silver.stg_order_lines`, etc.)

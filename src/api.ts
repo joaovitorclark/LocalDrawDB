@@ -12,6 +12,35 @@ export type CanvasState = {
   collapsedGroups?: string[];
 };
 
+export type ExportFormat =
+  | 'localdrawdb'
+  | 'spark-ddl'
+  | 'oracle-ddl'
+  | 'postgres-ddl'
+  | 'erwin'
+  | 'dbt'
+  | 'mermaid';
+
+export type InputDialect = 'spark' | 'oracle' | 'auto';
+
+export type ExportOption = {
+  id: string;
+  label: string;
+  format: ExportFormat;
+  dialect?: 'spark' | 'oracle';
+};
+
+export const EXPORT_OPTIONS: ExportOption[] = [
+  { id: 'localdrawdb-spark', label: 'LocalDrawDB (Spark)', format: 'localdrawdb', dialect: 'spark' },
+  { id: 'localdrawdb-oracle', label: 'LocalDrawDB (Oracle)', format: 'localdrawdb', dialect: 'oracle' },
+  { id: 'spark-ddl', label: 'Spark DDL', format: 'spark-ddl' },
+  { id: 'oracle-ddl', label: 'Oracle DDL', format: 'oracle-ddl' },
+  { id: 'postgres-ddl', label: 'PostgreSQL DDL', format: 'postgres-ddl' },
+  { id: 'erwin', label: 'erwin (ANSI)', format: 'erwin' },
+  { id: 'dbt', label: 'dbt', format: 'dbt' },
+  { id: 'mermaid', label: 'Mermaid', format: 'mermaid' },
+];
+
 async function post<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: 'POST',
@@ -47,18 +76,27 @@ export async function saveProject(dbml: string, canvas: CanvasState): Promise<vo
 }
 
 export const importFromInput = (dbml: string) =>
-  post<{ dbml: string; imported: string[]; warnings?: string[] }>('/api/import', { dbml });
+  post<{ dbml: string; imported: string[]; lineageFieldCount?: number; warnings?: string[] }>(
+    '/api/import',
+    { dbml },
+  );
 
-export const exportDdl = (dbml: string) => post<{ files: string[] }>('/api/export/ddl', { dbml });
-export const exportDbt = (dbml: string) => post<{ files: string[] }>('/api/export/dbt', { dbml });
-export const exportErwin = (dbml: string) =>
-  post<{ files: string[] }>('/api/export/erwin', { dbml });
-export const exportMermaid = (dbml: string) =>
-  post<{ files: string[] }>('/api/export/mermaid', { dbml });
+export function exportFormat(
+  dbml: string,
+  format: ExportFormat,
+  dialect?: 'spark' | 'oracle',
+) {
+  return post<{ files: string[] }>('/api/export', { dbml, format, dialect });
+}
+
+export const exportDdl = (dbml: string) => exportFormat(dbml, 'spark-ddl');
+export const exportDbt = (dbml: string) => exportFormat(dbml, 'dbt');
+export const exportErwin = (dbml: string) => exportFormat(dbml, 'erwin');
+export const exportMermaid = (dbml: string) => exportFormat(dbml, 'mermaid');
 export const exportPng = (pngBase64: string) =>
   post<{ file: string }>('/api/export/png', { pngBase64 });
 
-export type InputDialect = 'spark' | 'oracle' | 'auto';
-
 export const exportInput = (dbml: string, dialect: InputDialect = 'spark') =>
-  post<{ files: string[] }>('/api/export/input', { dbml, dialect });
+  exportFormat(dbml, 'localdrawdb', dialect === 'oracle' ? 'oracle' : 'spark');
+
+export const exportLocalDrawDB = exportInput;

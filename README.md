@@ -35,7 +35,12 @@ npm start          # http://localhost:5174
 - **Organize**: reordena o DBML em `tabelas → refs → records → lineage` (preserva comentários).
 - **+ Tabela / + Metadados**: nova tabela ou snippet de colunas lakehouse padrão.
 - **Importar (input/)**: mescla `.sql` de `data/input/` (Spark, Oracle, `@layer`/`@group`/`@note`/`@fk`, `COMMENT ON`, PK composta). Exemplo versionado em [`examples/input/`](examples/input/) — copie para `data/input/`.
-- **Export DDL / dbt / erwin / Mermaid / PNG**: artefatos em `data/output/`.
+- **Exportar** (menu + botão): escolha o formato e gera artefatos em `data/output/`:
+  - **LocalDrawDB (Spark/Oracle)** — SQL reimportável com metadados (`@map`, `@layer`, `INSERT`)
+  - **Spark DDL** — `CREATE TABLE` Delta por schema
+  - **Oracle DDL / PostgreSQL DDL** — `CREATE TABLE` + `ALTER TABLE` FK (sem metadados)
+  - **erwin (ANSI)**, **dbt**, **Mermaid**
+- **Export PNG**: download + `data/output/diagram.png`
 
 ### Interações no canvas
 
@@ -65,13 +70,21 @@ Blocos `Records` preservados; painel **Dados (amostra)** filtra por tabela/grupo
 - **Auto-save** (toggle verde/vermelho na toolbar): salva automaticamente após 1,5s quando há alterações pendentes (desligado por padrão).
 - Estados: **Salvando… / Salvo ✓ / ● Não salvo / ⚠ Falha ao salvar**.
 
+## Contrato de dados
+
+O repositório público contém **apenas** fixtures genéricas em [`examples/input/`](examples/input/) — principalmente [`demo_lakehouse_complex.sql`](examples/input/demo_lakehouse_complex.sql). Não versionamos modelos ou SQLs de domínios proprietários (ex.: autorização/TISS).
+
+- **Copie** os exemplos para `data/input/` antes de importar.
+- **Seu modelo** vive em `data/project.dbml` + `data/canvas.json` (gitignored).
+- Trabalho local com dados sensíveis: branch `local/wip` ou pasta `data/` — **sem push**.
+
 ## Pasta `data/` (nunca versionada)
 
 ```
 data/
 ├─ input/         # seus .sql locais (não versionados)
 examples/input/   # demo_lakehouse.sql, demo_lakehouse_complex.sql + README (copiar para data/input/)
-├─ output/        # DDL, dbt, erwin, Mermaid, PNG
+├─ output/        # localdrawdb/, spark/, oracle/, postgres/, dbt, erwin, Mermaid, PNG
 ├─ project.dbml   # fonte de verdade do modelo
 └─ canvas.json    # posições, cores, grupos colapsados
 ```

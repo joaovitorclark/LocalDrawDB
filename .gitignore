@@ -1,6 +1,11 @@
 # Dados do usuário — NUNCA versionar (input, output, project.dbml, canvas.json)
 /data/
 
+# Artefatos proprietários / acoplados a domínio local (nunca versionar)
+project.dbml
+examples/input/autorizacao*.sql
+scripts/generate-lineage-fields.ts
+
 # SQLs locais / fixtures temporários (ex.: exports de domínio)
 tmp/
 

@@ -2,23 +2,21 @@
 
 ## Contexto
 
-A camada silver de `autorizacao` foi escrita com PK/FK em notação de CONSTRAINT
-nomeada, no padrão:
+Modelos lakehouse com PK/FK em notação de CONSTRAINT nomeada, no padrão:
 
 ```sql
-CONSTRAINT pk_stg_pedido PRIMARY KEY (num_pedido),
-CONSTRAINT fk_stg_pedido_cliente FOREIGN KEY (cod_cliente)
-  REFERENCES staging.cliente (cod_cliente)
+CONSTRAINT pk_stg_order_lines PRIMARY KEY (line_id),
+CONSTRAINT fk_stg_order_lines_order FOREIGN KEY (order_id)
+  REFERENCES raw.erp_orders (order_id)
 ```
 
 Hoje o importador (`server/sqlImport.ts`) entende essa forma, mas com uma
-**limitação**: o regex de FK só captura **uma coluna** por constraint
-(`FOREIGN KEY ( col ) REFERENCES tabela ( col )`). FKs **compostas** não viram
+**limitação histórica**: o regex de FK só capturava **uma coluna** por constraint
+(`FOREIGN KEY ( col ) REFERENCES tabela ( col )`). FKs **compostas** não viravam
 `Ref:` no DBML / aresta no canvas.
 
-Por isso, no SQL atual, as relações de chave composta
-(`item -> sequencia`, `item_msg -> item`, `liberacao/ocorrencia/anexo/ptu -> sequencia`)
-usam um **workaround**: o `CONSTRAINT` composto fica correto no DDL (documentação),
+Por isso, em SQLs legados, relações de chave composta
+podiam usar um **workaround**: o `CONSTRAINT` composto fica correto no DDL (documentação),
 mas a aresta no diagrama é desenhada por linhas `-- @fk: col -> tabela.col`, uma por
 coluna de junção.
 
@@ -60,15 +58,14 @@ Implementado em `server/sqlImport.ts`, `server/model.ts`, `server/routes.ts`, `s
 - `server/__tests__/sqlImport.test.ts`
   - Casos: FK simples nomeada; FK composta de 2 e 3 colunas; FK com quebra de linha;
     erro de aridade (origem != destino); dedupe `CONSTRAINT` + `@fk`.
-- Após implementar: remover os `-- @fk:` redundantes do `tmp/autorizacao.sql`
-  (item, item_msg, liberacao, ocorrencia, anexo, sequencia_ptu) e validar que as
-  arestas continuam aparecendo no canvas a partir só do `CONSTRAINT`.
+- Após implementar: validar com fixture composta (`demo_lakehouse_complex.sql`) que arestas
+  de chave composta aparecem no canvas a partir só do `CONSTRAINT`.
 
 ## Critérios de aceite
 
-- AC1: Importar `tmp/autorizacao.sql` **sem** as linhas `@fk` desenha todas as arestas
-  de chave composta (2 por seq, 3 por item_msg).
-- AC2: FK simples nomeada (`fk_fato_autorizacao_situacao`) continua virando `Ref:`.
+- AC1: Importar SQL com FK composta **sem** linhas `@fk` redundantes desenha todas as arestas
+  de chave composta.
+- AC2: FK simples nomeada (ex.: `fk_fact_orders_customer`) continua virando `Ref:`.
 - AC3: Aridade divergente reporta problema, não quebra o import inteiro.
 - AC4: Nenhuma aresta duplicada quando coexistirem `CONSTRAINT` composto e `@fk`.
 
