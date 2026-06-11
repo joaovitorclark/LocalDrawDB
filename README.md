@@ -1,13 +1,5 @@
 # LocalDrawDB
 
-Modelador **local e offline** de bancos/lakehouses, estilo
-[dbdiagram.io](https://dbdiagram.io), com foco em tabelas Spark/Databricks.
-Edite tabelas numa DSL textual (DBML), veja o diagrama (ERD) ao vivo, importe
-`.sql` e exporte **DDL Spark, projeto dbt, PNG** e um **script para reverse-engineer
-no erwin**. Sem Docker, sem servidor de banco.
-
-> Construído com **spec-driven development** — veja [`spec/`](./spec).
-
 ## Requisitos
 
 - Node.js 20+ e npm (nenhum banco, nenhum Docker).
