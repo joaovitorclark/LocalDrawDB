@@ -3,8 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "description": "Modelador local de bancos/lakehouses estilo dbdiagram.io",
   "scripts": {
+    "postinstall": "node scripts/check-node.mjs --warn",
+    "predev": "node scripts/check-node.mjs",
+    "prestart": "node scripts/check-node.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
