@@ -1,12 +1,23 @@
 // Dev orchestrator: aloca portas livres por clone e liga Vite -> API do mesmo projeto.
 import { spawn } from 'node:child_process';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allocateDevPorts, waitForPort } from './devPorts.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEV_META = path.join(ROOT, '.localdrawdb-dev.json');
+const TSX_CLI = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+const VITE_CLI = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+
+function requireDeps() {
+  if (!existsSync(TSX_CLI) || !existsSync(VITE_CLI)) {
+    console.error('\nDependencias ausentes. Rode primeiro:\n  npm install\n');
+    process.exit(1);
+  }
+}
+
+requireDeps();
 
 const { apiPort, webPort } = await allocateDevPorts();
 
@@ -24,11 +35,12 @@ const env = {
   VITE_PORT: String(webPort),
 };
 
-const server = spawn('npx', ['tsx', 'watch', 'server/index.ts'], {
+const nodeArgs = (script, ...args) => [script, ...args];
+
+const server = spawn(process.execPath, nodeArgs(TSX_CLI, 'watch', 'server/index.ts'), {
   cwd: ROOT,
   env,
   stdio: 'inherit',
-  shell: true,
 });
 
 try {
@@ -44,11 +56,10 @@ try {
   process.exit(1);
 }
 
-const web = spawn('npx', ['vite', '--port', String(webPort), '--strictPort'], {
+const web = spawn(process.execPath, nodeArgs(VITE_CLI, '--port', String(webPort), '--strictPort'), {
   cwd: ROOT,
   env,
   stdio: 'inherit',
-  shell: true,
 });
 
 let stopping = false;

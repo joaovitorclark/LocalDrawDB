@@ -2,7 +2,19 @@
 
 ## Requisitos
 
-- Node.js 20+ e npm (nenhum banco, nenhum Docker).
+- **Node.js 20 LTS ou superior** (22 LTS recomendado para instalação nova)
+- **npm 10+** (incluso no instalador oficial do Node)
+
+Verifique antes de começar:
+
+```bash
+node -v   # v20.x ou v22.x
+npm -v    # 10.x ou superior
+```
+
+Com [nvm](https://github.com/nvm-sh/nvm) ou [fnm](https://github.com/Schniz/fnm): na pasta do projeto, `nvm install` / `fnm install` (lê `.nvmrc`).
+
+Nenhum banco, nenhum Docker.
 
 ## Rodando
 
