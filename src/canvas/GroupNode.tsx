@@ -1,7 +1,9 @@
 // Caixa de TableGroup: drag só na alça (rótulo + bordas); interior permite pan.
+import { memo } from 'react';
+
 type GroupData = { label: string; collapsed: boolean; count: number; onToggle?: () => void };
 
-export function GroupNode({ data }: { data: GroupData }) {
+function GroupNodeImpl({ data }: { data: GroupData }) {
   return (
     <div className={`group-node ${data.collapsed ? 'is-collapsed' : ''}`}>
       {!data.collapsed && (
@@ -29,3 +31,5 @@ export function GroupNode({ data }: { data: GroupData }) {
     </div>
   );
 }
+
+export const GroupNode = memo(GroupNodeImpl);
