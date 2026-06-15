@@ -10,7 +10,7 @@ import { LineageEdge } from './LineageEdge';
 import { FieldLineageEdge } from './FieldLineageEdge';
 import { EdgeMarkers } from './EdgeMarkers';
 import { GroupNode } from './GroupNode';
-import { useCanvasNodes, useHoverHighlight, type NodeOpts, type Positions } from './hooks/useCanvasNodes';
+import { useCanvasNodes, useHoverHighlight, type NodeExtras, type NodeOpts, type Positions } from './hooks/useCanvasNodes';
 import { useInteraction } from '../store/interaction';
 import type { ParseResult, ParsedFieldLineage } from '../dsl/parse';
 import type { LineageLink } from '../api';
@@ -30,6 +30,8 @@ export type RefEndpoints = { fromTbl: string; fromCol: string; toTbl: string; to
 
 type Props = {
   parsed: ParseResult;
+  /** Cor de cabeçalho + metadados pré-computados por tabela (memoização dos nós). */
+  nodeExtras: NodeExtras;
   positions: Positions;
   onPositionsChange: (p: Positions) => void;
   onCreateRef: (a: string, ac: string, b: string, bc: string) => void;
@@ -148,7 +150,7 @@ function FocusFieldMappingHelper() {
 }
 
 export function Canvas(props: Props) {
-  const { parsed, positions, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
+  const { parsed, nodeExtras, positions, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
     staleWarning, lineage, lineageFields, onCreateLineage, onRemoveLineage, onRemoveFieldLineage,
     layerOf, collapsedGroups, onToggleGroup, focusTableId, focusNonce, onFocusTableDone, fitViewTrigger } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -233,7 +235,7 @@ export function Canvas(props: Props) {
     return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, onToggleGroup };
   }, [parsed.tables, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
 
-  useCanvasNodes(parsed, positions, setNodes, relatedRef, opts);
+  useCanvasNodes(parsed, positions, setNodes, relatedRef, opts, nodeExtras);
   useHoverHighlight(setNodes, related);
 
   const onSelectionChange = useCallback(
@@ -611,7 +613,14 @@ export function Canvas(props: Props) {
         <FocusFieldMappingHelper />
         <Background />
         <Controls />
-        <MiniMap pannable zoomable />
+        <MiniMap
+          pannable
+          zoomable
+          nodeStrokeWidth={0}
+          nodeColor={(n) =>
+            n.type === 'group' ? 'transparent' : ((n.data as { headerColor?: string })?.headerColor ?? '#13284b')
+          }
+        />
       </ReactFlow>
     </div>
   );

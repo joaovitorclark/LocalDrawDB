@@ -14,7 +14,7 @@ import {
 import { RecordsPanel } from './records/RecordsPanel';
 import { ColumnPanel } from './canvas/ColumnPanel';
 import { FieldLineagePanel } from './canvas/FieldLineagePanel';
-import { CanvasActionsCtx, type CanvasActions } from './canvas/actions';
+import { CanvasActionsCtx, type CanvasActions, type TableMeta } from './canvas/actions';
 import { LayersPanel } from './canvas/LayersPanel';
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
@@ -31,6 +31,22 @@ import type { LineageLink } from './api';
 type Positions = Record<string, { x: number; y: number }>;
 type Colors = Record<string, string>;
 type Snapshot = { dbml: string; positions: Positions; colors: Colors };
+
+/**
+ * Mantém a mesma referência enquanto o conteúdo (por JSON) não muda. Usado para
+ * estabilizar arrays derivados do parse (que geram nova identidade a cada keystroke)
+ * e assim manter callbacks/contexto memoizados.
+ */
+function useStable<T>(value: T): T {
+  const ref = useRef(value);
+  const sig = JSON.stringify(value);
+  const sigRef = useRef(sig);
+  if (sig !== sigRef.current) {
+    sigRef.current = sig;
+    ref.current = value;
+  }
+  return ref.current;
+}
 
 const SAMPLE = `TableGroup vendas {
   loja.cliente
@@ -450,8 +466,10 @@ export default function App() {
   }, [activeModel.lineage]);
 
   // Camadas vêm do DBML (LayerGroup) — fonte de verdade exportável.
-  const layersArr = useMemo(() => layersFromGroups(activeModel.layerGroups), [activeModel.layerGroups]);
-  const layerMembership = useMemo(() => tableLayerMap(activeModel.layerGroups), [activeModel.layerGroups]);
+  // useStable preserva identidade entre keystrokes (o parse recria os arrays), o que
+  // mantém layerOf/actions memoizados e evita re-render de todos os nós.
+  const layersArr = useStable(useMemo(() => layersFromGroups(activeModel.layerGroups), [activeModel.layerGroups]));
+  const layerMembership = useStable(useMemo(() => tableLayerMap(activeModel.layerGroups), [activeModel.layerGroups]));
   const layerOf = useCallback(
     (id: string) => {
       if (layerMembership[id]) return layerMembership[id];
@@ -482,6 +500,70 @@ export default function App() {
     [mutateDbml, pruneCanvasState],
   );
 
+  // Refs com os dados voláteis (recriados a cada parse). Os callbacks de `actions`
+  // leem o valor mais recente via ref, então a identidade de `actions` pode ser
+  // estável entre keystrokes — sem isso o contexto muda sempre e re-renderiza todos
+  // os nós do React Flow.
+  const colorsRef = useRef(colors);
+  colorsRef.current = colors;
+  const modelRef = useRef(activeModel);
+  modelRef.current = activeModel;
+  const lineageRef = useRef(lineage);
+  lineageRef.current = lineage;
+  const layersArrRef = useRef(layersArr);
+  layersArrRef.current = layersArr;
+
+  // Computa, por tabela, a cor de cabeçalho e os metadados (PKs/FKs/linhagem/etc.)
+  // em uma única passada. Esses valores vão para o `data` do nó, permitindo memoizar
+  // `TableNode` por identidade de `data` em vez de recalcular durante cada render.
+  const nodeExtras = useMemo(() => {
+    const model = activeModel;
+    const fksBySource = new Map<string, { column: string; ref: string }[]>();
+    const refsInByTarget = new Map<string, Set<string>>();
+    for (const r of model.refs) {
+      let fl = fksBySource.get(r.source);
+      if (!fl) fksBySource.set(r.source, (fl = []));
+      fl.push({ column: r.fromCol, ref: `${r.target}.${r.toCol}` });
+      let rs = refsInByTarget.get(r.target);
+      if (!rs) refsInByTarget.set(r.target, (rs = new Set()));
+      rs.add(r.source);
+    }
+    const sourcesByTarget = new Map<string, string[]>();
+    for (const l of lineage) {
+      let s = sourcesByTarget.get(l.target);
+      if (!s) sourcesByTarget.set(l.target, (s = []));
+      s.push(l.source);
+    }
+    const recByKey = new Map<string, (typeof model.records)[number]>();
+    for (const rec of model.records) recByKey.set(rec.table, rec);
+
+    const map = new Map<string, { headerColor: string; meta: TableMeta }>();
+    for (const t of model.tables) {
+      const sources = sourcesByTarget.get(t.id) ?? [];
+      const rec = recByKey.get(t.id) ?? recByKey.get(t.name);
+      const sample = rec ? { columns: rec.columns, rows: rec.rows } : null;
+      const pks = t.columns.filter((c) => c.pk).map((c) => c.name);
+      const fks = fksBySource.get(t.id) ?? [];
+      const refsIn = [...(refsInByTarget.get(t.id) ?? [])];
+      const columnNotes = t.columns
+        .filter((c) => c.note)
+        .map((c) => ({ column: c.name, note: c.note as string }));
+      const has = !!(
+        sources.length ||
+        sample ||
+        pks.length ||
+        fks.length ||
+        refsIn.length ||
+        t.note ||
+        columnNotes.length
+      );
+      const meta: TableMeta = { sources, sample, pks, fks, refsIn, note: t.note, columnNotes, has };
+      const headerColor = colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
+      map.set(t.id, { headerColor, meta });
+    }
+    return map;
+  }, [activeModel, lineage, colors, layersArr, layerOf]);
+
   // Ações do canvas (mutações de documento e cores) expostas via contexto.
   const actions = useMemo<CanvasActions>(
     () => ({
@@ -504,7 +586,7 @@ export default function App() {
       },
       onRemoveTable: handleRemoveTable,
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
-      colorOf: (id) => colors[id],
+      colorOf: (id) => colorsRef.current[id],
       onSetColor: (id, color) =>
         setColors((prev) => {
           const next = { ...prev };
@@ -513,23 +595,24 @@ export default function App() {
           return next;
         }),
       layerOf,
-      layerColorOf: (layerId) => layerColorOf(layersArr, layerId),
+      layerColorOf: (layerId) => layerColorOf(layersArrRef.current, layerId),
       onSetLayer: (id, layerId) =>
-        setDbml((d) => setTableLayer(d, id, layerId, layerColorOf(layersArr, layerId ?? undefined))),
+        setDbml((d) => setTableLayer(d, id, layerId, layerColorOf(layersArrRef.current, layerId ?? undefined))),
       layers: layersArr,
       onAddLayer: (name, color) => setDbml((d) => addLayerGroup(d, name, color)),
       onToggleGroup: (name) =>
         setCollapsedGroups((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name])),
       tableMeta: (id) => {
-        const t = activeModel.tables.find((x) => x.id === id);
-        const sources = lineage.filter((l) => l.target === id).map((l) => l.source);
-        const rec = activeModel.records.find((r) => r.table === id || r.table === t?.name);
+        const model = modelRef.current;
+        const t = model.tables.find((x) => x.id === id);
+        const sources = lineageRef.current.filter((l) => l.target === id).map((l) => l.source);
+        const rec = model.records.find((r) => r.table === id || r.table === t?.name);
         const sample = rec ? { columns: rec.columns, rows: rec.rows } : null;
         const pks = t ? t.columns.filter((c) => c.pk).map((c) => c.name) : [];
-        const fks = activeModel.refs
+        const fks = model.refs
           .filter((r) => r.source === id)
           .map((r) => ({ column: r.fromCol, ref: `${r.target}.${r.toCol}` }));
-        const refsIn = [...new Set(activeModel.refs.filter((r) => r.target === id).map((r) => r.source))];
+        const refsIn = [...new Set(model.refs.filter((r) => r.target === id).map((r) => r.source))];
         const columnNotes = t
           ? t.columns.filter((c) => c.note).map((c) => ({ column: c.name, note: c.note as string }))
           : [];
@@ -537,7 +620,7 @@ export default function App() {
         return { sources, sample, pks, fks, refsIn, note: t?.note, columnNotes, has };
       },
     }),
-    [colors, selectColumn, layerOf, layersArr, activeModel, lineage, goToColumn, migrateTableId, handleRemoveTable],
+    [selectColumn, layerOf, layersArr, goToColumn, migrateTableId, handleRemoveTable],
   );
 
   const handleCreateLineage = (source: string, target: string) => {
@@ -755,6 +838,7 @@ export default function App() {
           <CanvasActionsCtx.Provider value={actions}>
             <Canvas
               parsed={activeModel}
+              nodeExtras={nodeExtras}
               positions={positions}
               onPositionsChange={setPositions}
               onCreateRef={handleCreateRef}

@@ -1,16 +1,21 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position } from 'reactflow';
-import type { TableView } from '../dsl/parse';
 import { useInteraction } from '../store/interaction';
-import { useCanvasActions, TABLE_COLORS } from './actions';
+import { useCanvasActions, TABLE_COLORS, type TableNodeData } from './actions';
 import { LineagePorts } from './LineagePorts';
 import { TableInfoPopover } from './TableInfoPopover';
 
 // Nó de tabela: colunas + FK por handle, ou cartão compacto + portas de linhagem (draw.io).
-export function TableNode({ data }: { data: TableView }) {
+// Memoizado: `data` (incl. cor/meta pré-computadas) só muda quando o conteúdo da própria
+// tabela muda, então editar uma tabela não re-renderiza as demais.
+function TableNodeImpl({ data }: { data: TableNodeData }) {
   const actions = useCanvasActions();
-  const selected = useInteraction((s) => s.selectedColumn);
+  // Assinatura escopada à própria tabela: selecionar coluna em outra tabela não
+  // dispara re-render aqui (retorna sempre null).
+  const selectedColumn = useInteraction((s) =>
+    s.selectedColumn && s.selectedColumn.table === data.id ? s.selectedColumn.column : null,
+  );
   const lineageMode = useInteraction((s) => s.lineageMode);
   const lineageVisible = useInteraction((s) => s.lineageVisible);
   const fieldLineageVisible = useInteraction((s) => s.fieldLineageVisible);
@@ -20,8 +25,8 @@ export function TableNode({ data }: { data: TableView }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
-  const color = actions.colorOf(data.id) ?? actions.layerColorOf(actions.layerOf(data.id)) ?? '#13284b';
-  const meta = actions.tableMeta(data.id);
+  const color = data.headerColor;
+  const meta = data.meta;
 
   const commitEdit = (oldName: string) => {
     const v = draft.trim();
@@ -114,7 +119,7 @@ export function TableNode({ data }: { data: TableView }) {
 
         <div className="table-node__cols">
               {data.columns.map((c) => {
-                const isSel = selected?.table === data.id && selected?.column === c.name;
+                const isSel = selectedColumn === c.name;
                 return (
                   <div
                     key={c.name}
@@ -184,3 +189,5 @@ export function TableNode({ data }: { data: TableView }) {
     </div>
   );
 }
+
+export const TableNode = memo(TableNodeImpl);

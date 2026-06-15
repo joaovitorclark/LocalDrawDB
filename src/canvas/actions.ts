@@ -2,6 +2,7 @@
 // profundos (TableNode/GroupNode) sem prop-drilling pelo React Flow.
 import { createContext, useContext } from 'react';
 import type { Layer } from '../api';
+import type { TableView } from '../dsl/parse';
 
 export type TableMeta = {
   sources: string[]; // linhagem: tabelas de origem
@@ -33,6 +34,17 @@ export type CanvasActions = {
   onToggleGroup: (name: string) => void;
   // metadados
   tableMeta: (tableId: string) => TableMeta;
+};
+
+/**
+ * Dados de render do nó de tabela: o `TableView` + cor de cabeçalho e metadados já
+ * resolvidos. Pré-computar no App (em vez de chamar `actions.*` durante o render)
+ * permite memoizar `TableNode` por identidade de `data`, evitando re-render de todas
+ * as tabelas a cada keystroke.
+ */
+export type TableNodeData = TableView & {
+  headerColor: string;
+  meta: TableMeta;
 };
 
 export const CanvasActionsCtx = createContext<CanvasActions | null>(null);
