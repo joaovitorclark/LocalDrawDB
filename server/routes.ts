@@ -46,11 +46,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: DbmlBody }>('/api/import', async (req) => {
     const baseDbml = req.body?.dbml ?? '';
-    const model = baseDbml.trim() ? dbmlToModel(baseDbml) : { tables: [], refs: [] };
+    const warnings: string[] = [];
+    let model: Model = { tables: [], refs: [] };
+    if (baseDbml.trim()) {
+      try {
+        model = dbmlToModel(baseDbml);
+      } catch (e: any) {
+        const msg = e?.diags?.[0]?.message ?? e?.diags?.[0]?.error ?? e?.message ?? 'DBML inválido';
+        warnings.push(`DBML do projeto ignorado: ${msg}`);
+      }
+    }
     const inputs = await readInputSql();
     let merged = model;
     const imported: string[] = [];
-    const warnings: string[] = [];
     for (const { file, content } of inputs) {
       const incoming = sqlToModel(content);
       if (incoming.warnings?.length) {

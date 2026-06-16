@@ -47,6 +47,18 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         line: dbml ? lineOfTable(dbml, t.id) : undefined,
       });
     }
+    for (const group of t.compositePks ?? []) {
+      for (const col of group) {
+        if (!colsByTable.get(t.id)?.has(col)) {
+          issues.push({
+            severity: 'error',
+            message: `PK composta: coluna "${col}" não existe em ${t.id}`,
+            tableId: t.id,
+            line: dbml ? lineOfTable(dbml, t.id) : undefined,
+          });
+        }
+      }
+    }
   }
 
   for (const r of parsed.refs) {

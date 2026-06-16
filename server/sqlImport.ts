@@ -28,10 +28,73 @@ function stripPostColumnClauses(stmt: string, closeIdx: number): string {
 }
 
 function splitStatements(sql: string): string[] {
-  return sql
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const stmts: string[] = [];
+  let cur = '';
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (ch === '/' && next === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      const slice = end >= 0 ? sql.slice(i, end + 2) : sql.slice(i);
+      cur += slice;
+      i += slice.length;
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      const nl = sql.indexOf('\n', i);
+      if (nl < 0) {
+        cur += sql.slice(i);
+        break;
+      }
+      cur += sql.slice(i, nl);
+      i = nl;
+      continue;
+    }
+
+    if (ch === "'") {
+      cur += ch;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === "'") {
+          cur += sql[i++];
+          if (sql[i] === "'") {
+            cur += sql[i++];
+            continue;
+          }
+          break;
+        }
+        cur += sql[i++];
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      cur += ch;
+      i++;
+      while (i < sql.length && sql[i] !== '"') {
+        cur += sql[i++];
+      }
+      if (i < sql.length) cur += sql[i++];
+      continue;
+    }
+
+    if (ch === ';') {
+      const trimmed = cur.trim();
+      if (trimmed) stmts.push(trimmed);
+      cur = '';
+      i++;
+      continue;
+    }
+
+    cur += ch;
+    i++;
+  }
+  const trimmed = cur.trim();
+  if (trimmed) stmts.push(trimmed);
+  return stmts;
 }
 
 /** Remove comentários `-- …` no fim da linha (preserva vírgula separadora de colunas). */
@@ -311,7 +374,7 @@ function metaFksToRefs(
   }));
 }
 
-export function createTableToTable(stmt: string): Table | null {
+export function createTableToTable(stmt: string, dialect: SqlDialect = 'ansi'): Table | null {
   const san = sanitizeCreateTable(stripInlineLineComments(stmt));
   if (!san) return null;
 
@@ -319,21 +382,24 @@ export function createTableToTable(stmt: string): Table | null {
   let compositePks: string[][] = [];
 
   try {
-    const ast = sqlParser.astify(`CREATE TABLE ${san.name} ${san.body}`, { database: 'hive' });
+    const ast = sqlParser.astify(`CREATE TABLE ${san.name} ${san.body}`, {
+      database: parserDialect(dialect),
+    });
     const node = Array.isArray(ast) ? ast[0] : ast;
     const defs: any[] = node.create_definitions ?? [];
 
     const pkCols = new Set<string>();
     for (const d of defs) {
       if (d.resource === 'constraint' && d.constraint_type === 'primary key') {
-        const cols = (d.definition ?? []).map((x: any) => x.column);
+        const cols = resolvePkColumnNames(d.definition ?? []);
         if (cols.length > 1) compositePks.push(cols);
-        cols.forEach((c: string) => pkCols.add(c));
+        cols.forEach((c) => pkCols.add(c));
       }
     }
     for (const d of defs) {
       if (d.resource !== 'column') continue;
-      const colName = d.column.column;
+      const colName = d.column?.column ?? d.column?.value ?? d.column;
+      if (typeof colName !== 'string') continue;
       const def = d.definition ?? {};
       const args =
         def.length != null
@@ -342,10 +408,10 @@ export function createTableToTable(stmt: string): Table | null {
             : `${def.length}`
           : undefined;
       columns.push({
-        name: colName,
+        name: colName.replace(/[`"]/g, ''),
         type: String(def.dataType ?? 'string').toLowerCase(),
         args,
-        pk: pkCols.has(colName),
+        pk: pkCols.has(colName.replace(/[`"]/g, '')),
         nullable: d.nullable?.type === 'not null' ? false : true,
       });
     }
@@ -386,6 +452,35 @@ function parseInserts(sql: string, tableName: string): { columns: string[]; rows
 
 function refDedupeKey(r: Ref): string {
   return `${r.from.table}.${r.from.column}->${r.to.table}.${r.to.column}`.toLowerCase();
+}
+
+function isDegenerateRef(r: Ref): boolean {
+  return (
+    r.from.table.toLowerCase() === r.to.table.toLowerCase() &&
+    r.from.column.toLowerCase() === r.to.column.toLowerCase()
+  );
+}
+
+/** Extrai nomes de coluna de definição PK do node-sql-parser (Oracle usa `.value`). */
+function resolvePkColumnNames(def: unknown[]): string[] {
+  return def
+    .map((x: unknown) => {
+      if (typeof x === 'string') return x.replace(/[`"]/g, '');
+      const o = x as Record<string, unknown>;
+      const raw = o?.column ?? o?.value ?? o?.name;
+      if (typeof raw === 'string') return raw.replace(/[`"]/g, '');
+      if (raw && typeof raw === 'object') {
+        const inner = raw as Record<string, unknown>;
+        const name = inner.column ?? inner.value ?? inner.name;
+        if (typeof name === 'string') return name.replace(/[`"]/g, '');
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function parserDialect(dialect: SqlDialect): string {
+  return dialect === 'oracle' ? 'oracle' : 'hive';
 }
 
 const MAP_INLINE_RE = /--\s*@(?:map|mapeamento)\s*<-\s*([A-Za-z0-9_.]+)(?:\s*\[([^\]]*)\])?\s*$/i;
@@ -658,6 +753,10 @@ function unquoteSqlString(s: string): string {
   return s.replace(/''/g, "'");
 }
 
+function normalizeOracleIdent(s: string): string {
+  return s.replace(/[`"]/g, '').trim();
+}
+
 /** `COMMENT ON TABLE/COLUMN` (Oracle) → notes no modelo. */
 function extractOracleComments(sql: string): {
   tables: Map<string, string>;
@@ -670,16 +769,16 @@ function extractOracleComments(sql: string): {
     /COMMENT\s+ON\s+TABLE\s+([`"]?)([A-Za-z0-9_.]+)\1\s+IS\s+'((?:[^']|'')*)'/gi;
   let m: RegExpExecArray | null;
   while ((m = tableRe.exec(sql)) !== null) {
-    tables.set(m[2].replace(/[`"]/g, '').toLowerCase(), unquoteSqlString(m[3]));
+    tables.set(normalizeOracleIdent(m[2]).toLowerCase(), unquoteSqlString(m[3]));
   }
 
   const colRe =
     /COMMENT\s+ON\s+COLUMN\s+([`"]?)([A-Za-z0-9_.]+)\1\.([`"]?)([A-Za-z_][\w]*)\3\s+IS\s+'((?:[^']|'')*)'/gi;
   while ((m = colRe.exec(sql)) !== null) {
-    const qname = m[2].replace(/[`"]/g, '').toLowerCase();
-    const col = m[4];
+    const qname = normalizeOracleIdent(m[2]).toLowerCase();
+    const col = normalizeOracleIdent(m[4]).toLowerCase();
     if (!columns.has(qname)) columns.set(qname, new Map());
-    columns.get(qname)!.set(col.toLowerCase(), unquoteSqlString(m[5]));
+    columns.get(qname)!.set(col, unquoteSqlString(m[5]));
   }
 
   return { tables, columns };
@@ -714,8 +813,10 @@ export function sqlToModel(sql: string): Model {
   const fieldSeen = new Set<string>();
   const metaMap = extractMetaComments(sql);
   const stmts = splitStatements(sql);
+  const dialect = detectSqlDialect(sql);
 
   const addRef = (r: Ref) => {
+    if (isDegenerateRef(r)) return;
     const k = refDedupeKey(r);
     if (refSeen.has(k)) return;
     refSeen.add(k);
@@ -731,7 +832,7 @@ export function sqlToModel(sql: string): Model {
 
   for (const stmt of stmts) {
     if (!/create\s+(?:external\s+|temporary\s+)?table/i.test(stmt)) continue;
-    const t = createTableToTable(stmt);
+    const t = createTableToTable(stmt, dialect);
     if (!t) continue;
 
     const createLine = findCreateLineInSource(sql, t);

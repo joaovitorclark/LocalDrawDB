@@ -344,3 +344,81 @@ COMMENT ON COLUMN staging.t.email IS 'email do cliente';
     expect(cols.find((c) => c.name === 'email')?.note).toBe('email do cliente');
   });
 });
+
+describe('splitStatements comment-aware', () => {
+  it('não parte em ; dentro de string literal (COMMENT ON)', () => {
+    const m = sqlToModel(`
+CREATE TABLE staging.t (
+  id NUMBER(1) NOT NULL,
+  CONSTRAINT pk_t PRIMARY KEY (id)
+);
+COMMENT ON COLUMN staging.t.id IS 'codigo; interno';
+`);
+    expect(m.tables).toHaveLength(1);
+    expect(m.tables[0].columns.find((c) => c.name === 'id')?.note).toBe('codigo; interno');
+  });
+});
+
+describe('Oracle PK composta', () => {
+  it('preenche compositePks via CONSTRAINT PRIMARY KEY', () => {
+    const m = sqlToModel(`
+CREATE TABLE staging.order_lines (
+  order_id NUMBER(10) NOT NULL,
+  line_no NUMBER(5) NOT NULL,
+  qty NUMBER(10),
+  CONSTRAINT pk_order_lines PRIMARY KEY (order_id, line_no)
+);
+`);
+    const t = m.tables[0];
+    expect(t.compositePks).toEqual([['order_id', 'line_no']]);
+    expect(t.columns.find((c) => c.name === 'order_id')?.pk).toBe(true);
+    expect(t.columns.find((c) => c.name === 'line_no')?.pk).toBe(true);
+  });
+});
+
+describe('refs degeneradas', () => {
+  it('ignora ref com mesmo endpoint (origem = destino)', () => {
+    const m = sqlToModel(`
+-- @fk: id -> staging.loop.id
+CREATE TABLE staging.loop (
+  id NUMBER(1) NOT NULL,
+  CONSTRAINT pk_loop PRIMARY KEY (id)
+);
+`);
+    expect(m.refs).toHaveLength(0);
+  });
+});
+
+describe('Oracle DDL sintético — round-trip DBML', () => {
+  const ORACLE_ROUNDTRIP = `
+CREATE TABLE staging.dim_region (
+  region_code VARCHAR2(10) NOT NULL,
+  country_code VARCHAR2(5) NOT NULL,
+  region_name VARCHAR2(100),
+  CONSTRAINT pk_dim_region PRIMARY KEY (region_code, country_code)
+);
+COMMENT ON TABLE staging.dim_region IS 'Dimensão região -- oficial';
+COMMENT ON COLUMN staging.dim_region.region_name IS 'Nome legível; pode conter ''aspas''';
+
+CREATE TABLE staging.fact_sales (
+  sale_id NUMBER(19) NOT NULL,
+  region_code VARCHAR2(10),
+  amount NUMBER(12,2),
+  CONSTRAINT pk_fact_sales PRIMARY KEY (sale_id),
+  CONSTRAINT fk_sales_region FOREIGN KEY (region_code)
+    REFERENCES staging.dim_region (region_code)
+);
+COMMENT ON COLUMN staging.fact_sales.amount IS 'Valor bruto\\nlinha2 -- nota';
+`;
+
+  it('sqlToModel → modelToDbml → parseDbml sem erro', () => {
+    const m = sqlToModel(ORACLE_ROUNDTRIP);
+    expect(m.tables).toHaveLength(2);
+    expect(m.tables[0].compositePks).toEqual([['region_code', 'country_code']]);
+    expect(m.tables[0].columns.find((c) => c.name === 'region_name')?.note).toContain('aspas');
+    const dbml = modelToDbml(m);
+    const parsed = parseDbml(dbml);
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.tables.some((t) => t.id === 'staging.dim_region')).toBe(true);
+  });
+});

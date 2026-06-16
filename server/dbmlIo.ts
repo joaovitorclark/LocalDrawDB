@@ -1,6 +1,7 @@
 // Conversão DBML <-> modelo canônico.
 // DBML é a fonte de verdade do projeto; o modelo é o intermediário para os geradores.
 import { Parser } from '@dbml/core';
+import { quoteDbmlNote } from '../src/dsl/dbmlNotes.ts';
 import { extractRecords } from './dbmlClean.ts';
 import { parseTypeName, qualifiedName } from './model.ts';
 import type { Column, FieldLineageEntry, LineageEntry, Model, Ref, Table } from './model.ts';
@@ -11,6 +12,19 @@ const REL_TO_KIND: Record<string, '>' | '<' | '-' | '<>'> = {
 };
 
 const stripQuotes = (s: string) => s.replace(/["`]/g, '').trim();
+
+function indexColName(c: unknown): string {
+  if (typeof c === 'string') return c;
+  const o = c as { value?: string; name?: string };
+  return o?.value ?? o?.name ?? '';
+}
+
+function isDegenerateRef(r: Ref): boolean {
+  return (
+    r.from.table.toLowerCase() === r.to.table.toLowerCase() &&
+    r.from.column.toLowerCase() === r.to.column.toLowerCase()
+  );
+}
 
 function tableIdMatches(a: string, b: string): boolean {
   const x = stripQuotes(a).toLowerCase();
@@ -46,7 +60,7 @@ export function dbmlToModel(dbml: string): Model {
       });
 
       for (const idx of (t as any).indexes ?? []) {
-        const cols = (idx.columns ?? []).map((c: any) => (typeof c === 'string' ? c : c.name));
+        const cols = (idx.columns ?? []).map(indexColName).filter(Boolean);
         if (idx.pk && cols.length > 1) {
           compositePks.push(cols);
           for (const n of cols) {
@@ -77,11 +91,12 @@ export function dbmlToModel(dbml: string): Model {
         ep.schemaName && ep.schemaName !== 'public'
           ? `${ep.schemaName}.${ep.tableName}`
           : ep.tableName;
-      refs.push({
+      const ref: Ref = {
         from: { table: epName(fromEp), column: fromEp.fieldNames[0] },
         to: { table: epName(toEp), column: toEp.fieldNames[0] },
         kind: REL_TO_KIND[fromEp.relation] ?? '>',
-      });
+      };
+      if (!isDegenerateRef(ref)) refs.push(ref);
     }
   }
 
@@ -123,7 +138,7 @@ export function dbmlToModel(dbml: string): Model {
 }
 
 function quoteNote(note: string): string {
-  return `'${note.replace(/'/g, "\\'")}'`;
+  return quoteDbmlNote(note);
 }
 
 /** Serializa o modelo canônico de volta para DBML (texto versionável). */
