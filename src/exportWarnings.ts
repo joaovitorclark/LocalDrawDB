@@ -24,9 +24,9 @@ export function exportInputL2Warning(
   lineageFields: ParsedFieldLineage[],
 ): string | null {
   if (!lineageFields.length) {
-    return 'Export sem @map: modelo sem LineageFields. Edite Mapeamentos L2 ou importe SQL com @map.';
+    return 'Export sem linhagem: modelo sem LineageFields. Edite Mapeamentos L2 ou importe SQL com @lineage.';
   }
   const missing = countSilverColumnsWithoutL2(tables, lineageFields);
   if (missing === 0) return null;
-  return `Export sem @map: ${missing} coluna(s) silver sem LineageFields. Edite Mapeamentos L2 ou importe SQL com @map.`;
+  return `Export sem linhagem: ${missing} coluna(s) silver sem LineageFields. Edite Mapeamentos L2 ou importe SQL com @lineage.`;
 }

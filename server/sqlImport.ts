@@ -484,6 +484,76 @@ function extractFieldLineageFromStmt(
   return entries;
 }
 
+const LINEAGE_FOOTER_HEADER_RE = /^--\s*@lineage\s+([A-Za-z0-9_.]+)\s*$/i;
+const LINEAGE_FOOTER_LINE_RE =
+  /^--\s*([A-Za-z_][\w]*)\s*<-\s*([A-Za-z0-9_.]+)(?:\s*\[([^\]]*)\])?\s*$/;
+
+/**
+ * Extrai o bloco-rodapé de linhagem L2 (formato novo):
+ *   -- @lineage silver.dim_customer
+ *   --   natural_id <- raw.customers.id [note: '...', ref: '...']
+ * O cabeçalho fixa a tabela destino; as linhas seguintes (comentários) trazem
+ * `coluna <- origem.qualificada`. Qualquer linha que não case encerra o bloco.
+ */
+function extractFieldLineageFooter(sql: string): FieldLineageEntry[] {
+  const out: FieldLineageEntry[] = [];
+  let target: string | null = null;
+  for (const raw of sql.split('\n')) {
+    const line = raw.trim();
+    const header = LINEAGE_FOOTER_HEADER_RE.exec(line);
+    if (header) {
+      target = header[1];
+      continue;
+    }
+    if (!target) continue;
+    const m = line.startsWith('--') ? LINEAGE_FOOTER_LINE_RE.exec(line) : null;
+    if (!m) {
+      target = null;
+      continue;
+    }
+    const sourceQualified = m[2];
+    const lastDot = sourceQualified.lastIndexOf('.');
+    if (lastDot <= 0) continue;
+    out.push({
+      targetTable: target,
+      targetColumn: m[1],
+      sourceTable: sourceQualified.slice(0, lastDot),
+      sourceColumn: sourceQualified.slice(lastDot + 1),
+      ...parseMapMeta(m[3]),
+    });
+  }
+  return out;
+}
+
+/**
+ * Comentário inline `-- texto` na linha da coluna vira descrição da coluna
+ * (Column.note). Ignora diretivas `-- @...` (linhagem/meta) e linhas de constraint.
+ */
+function extractColumnComments(stmt: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const innerRaw = extractCreateTableBody(stmt);
+  if (!innerRaw) return out;
+  const parts = /\n/.test(innerRaw)
+    ? innerRaw.split('\n')
+    : splitTopLevelRespectingLineComments(innerRaw);
+  for (const rawPart of parts) {
+    const part = rawPart.trim();
+    if (!part) continue;
+    const cIdx = part.indexOf('--');
+    if (cIdx < 0) continue;
+    const comment = part.slice(cIdx + 2).trim();
+    if (!comment || comment.startsWith('@')) continue;
+    const before = part.slice(0, cIdx).trim().replace(/,\s*$/, '');
+    if (/^(constraint|foreign\s+key|unique|key|index)\b/i.test(before)) continue;
+    if (/(?:^|\s)primary\s+key\s*\(/i.test(before)) continue;
+    const colMatch = /^([`"]?[A-Za-z_][\w]*[`"]?)\s+/.exec(before);
+    if (!colMatch) continue;
+    const col = colMatch[1].replace(/[`"]/g, '');
+    if (!out.has(col)) out.set(col, comment);
+  }
+  return out;
+}
+
 function lineageEntryKey(entry: LineageEntry): string {
   return entry.target.toLowerCase();
 }
@@ -679,7 +749,14 @@ export function sqlToModel(sql: string): Model {
     }
 
     for (const r of extractForeignKeysFromStmt(stripLineComments(stmt), t, warnings)) addRef(r);
+    // Retrocompat: @map inline na coluna (formato antigo).
     for (const field of extractFieldLineageFromStmt(stmt, t)) addFieldLineage(field);
+    // Comentário inline `-- texto` (não-diretiva) → descrição da coluna.
+    const colComments = extractColumnComments(stmt);
+    for (const c of t.columns) {
+      const cc = colComments.get(c.name);
+      if (cc && !c.note) c.note = cc;
+    }
 
     const inserts = parseInserts(sql, t.name);
     if (inserts.rows.length) {
@@ -691,6 +768,9 @@ export function sqlToModel(sql: string): Model {
 
     tables.push(t);
   }
+
+  // Formato novo: bloco-rodapé `-- @lineage <tabela>` (após o CREATE).
+  for (const field of extractFieldLineageFooter(sql)) addFieldLineage(field);
 
   applyOracleComments(tables, sql);
 

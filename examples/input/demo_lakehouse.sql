@@ -9,19 +9,18 @@
 --   @note    → Note no bloco Records (não no Table)
 --   @fk      → Ref no DBML (integridade referencial)
 --   @origen  → Linhagem L1 tabela→tabela (Lineage { } no DBML)
---   @map     → Linhagem L2 campo→campo inline na coluna (LineageFields { })
 --
--- Linhagem (lakehouse silver/gold abaixo):
---   L1: -- @origen: schema.tabela_origem
---   L2: coluna TIPO, -- @map <- schema.tabela.coluna [note: '...', ref: '...']
---   (vírgula antes do comentário @map — importante para round-trip no import)
+-- Linhagem L2 (campo→campo) — bloco-rodapé APÓS o CREATE (vira LineageFields { }):
+--   -- @lineage schema.tabela_destino
+--   --   coluna <- schema.tabela_origem.coluna [note: '...', ref: '...']
 --
--- Exemplo mínimo (ver silver.dim_customer mais abaixo):
---   -- @origen: raw.customers
---   natural_id BIGINT, -- @map <- raw.customers.id
---   name STRING,       -- @map <- raw.customers.name
+-- Descrição de coluna: comentário inline `-- texto` na própria coluna
+--   (vira [note] no DBML / COMMENT ON COLUMN no Oracle). Ex.:
+--   customer_key BIGINT, -- surrogate key (SCD2)
 --
--- Trecho Oracle (staging.*) no final: @layer/@fk/@note apenas — @origen/@map opcionais.
+-- Compat: o formato antigo `coluna TIPO, -- @map <- ...` inline ainda é importado.
+--
+-- Trecho Oracle (staging.*) no final: @layer/@fk/@note + COMMENT ON.
 --
 -- Também suportado no DDL:
 --   PRIMARY KEY (col) ou PRIMARY KEY (a, b)  → PK / PK composta (indexes)
@@ -102,17 +101,23 @@ VALUES (503, 'SKU-003', 'Modulo Enterprise', 'Software', 150.00, true);
 -- @origen: raw.customers
 -- @fk: natural_id -> raw.customers.id
 CREATE TABLE IF NOT EXISTS silver.dim_customer (
-  customer_key BIGINT,
-  natural_id BIGINT, -- @map <- raw.customers.id
-  name STRING,       -- @map <- raw.customers.name
-  email STRING,      -- @map <- raw.customers.email
-  segment STRING,    -- @map <- raw.customers.segment
-  region STRING,     -- @map <- raw.customers.region
-  is_current BOOLEAN,
+  customer_key BIGINT, -- surrogate key (SCD2)
+  natural_id BIGINT,
+  name STRING,
+  email STRING,
+  segment STRING,
+  region STRING,
+  is_current BOOLEAN, -- flag da versão vigente
   valid_from TIMESTAMP,
   valid_to TIMESTAMP,
   PRIMARY KEY (customer_key)
 ) USING DELTA;
+-- @lineage silver.dim_customer
+--   natural_id <- raw.customers.id
+--   name <- raw.customers.name
+--   email <- raw.customers.email
+--   segment <- raw.customers.segment
+--   region <- raw.customers.region
 
 INSERT INTO silver.dim_customer (customer_key, natural_id, name, email, segment, region, is_current, valid_from, valid_to)
 VALUES (1, 100, 'Alice Silva', 'alice@empresa.com', 'Enterprise', 'Sudeste', true, '2023-06-01', null);
@@ -126,12 +131,17 @@ VALUES (2, 101, 'Bob Santos', 'bob@loja.com.br', 'B2C', 'Sul', true, '2023-07-15
 -- @fk: sku -> raw.products.sku
 CREATE TABLE IF NOT EXISTS silver.dim_product (
   product_key BIGINT,
-  sku STRING,       -- @map <- raw.products.sku
-  name STRING,      -- @map <- raw.products.name
-  category STRING,  -- @map <- raw.products.category
-  price DECIMAL(10,2), -- @map <- raw.products.price
+  sku STRING, -- código de negócio do produto
+  name STRING,
+  category STRING,
+  price DECIMAL(10,2),
   PRIMARY KEY (product_key)
 ) USING DELTA;
+-- @lineage silver.dim_product
+--   sku <- raw.products.sku
+--   name <- raw.products.name
+--   category <- raw.products.category
+--   price <- raw.products.price
 
 INSERT INTO silver.dim_product (product_key, sku, name, category, price)
 VALUES (1, 'SKU-001', 'Widget Pro', 'Hardware', 99.95);
@@ -143,17 +153,22 @@ VALUES (2, 'SKU-002', 'Gadget Mini', 'Acessorios', 49.90);
 -- @note: Fato de pedidos — FK explícitas no DDL (além de @fk acima nas dims)
 -- @origen: raw.orders
 CREATE TABLE IF NOT EXISTS silver.fact_orders (
-  order_id BIGINT,   -- @map <- raw.orders.id
+  order_id BIGINT,
   customer_key BIGINT,
   product_key BIGINT,
-  quantity INT,      -- @map <- raw.orders.quantity
-  total DECIMAL(18,2), -- @map <- raw.orders.total
+  quantity INT,
+  total DECIMAL(18,2), -- valor bruto do pedido
   order_date DATE,
-  status STRING,     -- @map <- raw.orders.status
+  status STRING,
   PRIMARY KEY (order_id),
   FOREIGN KEY (customer_key) REFERENCES silver.dim_customer (customer_key),
   FOREIGN KEY (product_key) REFERENCES silver.dim_product (product_key)
 ) USING DELTA;
+-- @lineage silver.fact_orders
+--   order_id <- raw.orders.id
+--   quantity <- raw.orders.quantity
+--   total <- raw.orders.total
+--   status <- raw.orders.status
 
 INSERT INTO silver.fact_orders (order_id, customer_key, product_key, quantity, total, order_date, status)
 VALUES (1, 1, 1, 2, 199.90, '2024-01-15', 'delivered');
@@ -170,11 +185,13 @@ CREATE TABLE IF NOT EXISTS gold.report_revenue (
   period DATE,
   region STRING,
   segment STRING,
-  total_revenue DECIMAL(18,2), -- @map <- silver.fact_orders.total [note: 'SUM(total) por periodo/regiao']
+  total_revenue DECIMAL(18,2),
   order_count INT,
   avg_ticket DECIMAL(10,2),
   PRIMARY KEY (period, region)
 ) USING DELTA;
+-- @lineage gold.report_revenue
+--   total_revenue <- silver.fact_orders.total [note: 'SUM(total) por periodo/regiao']
 
 INSERT INTO gold.report_revenue (period, region, segment, total_revenue, order_count, avg_ticket)
 VALUES ('2024-01-01', 'Sudeste', 'Enterprise', 949.90, 2, 474.95);

@@ -62,16 +62,34 @@ function formatMapMeta(field: FieldLineageEntry): string {
   return parts.length ? ` [${parts.join(', ')}]` : '';
 }
 
-function formatColumnLine(
-  c: Column,
-  type: string,
-  fieldMap?: FieldLineageEntry,
-): string {
+function columnCode(c: Column, type: string): string {
   const nn = c.nullable === false ? ' NOT NULL' : '';
-  const mapSuffix = fieldMap
-    ? `, -- @map <- ${fieldMap.sourceTable}.${fieldMap.sourceColumn}${formatMapMeta(fieldMap)}`
-    : '';
-  return `  ${c.name} ${type}${nn}${mapSuffix}`;
+  return `  ${c.name} ${type}${nn}`;
+}
+
+/** Linha de coluna/constraint. Vírgula separadora vem ANTES do comentário inline. */
+type BodyEntry = { code: string; comment?: string };
+
+function assembleBody(entries: BodyEntry[]): string {
+  return entries
+    .map((e, i) => {
+      const sep = i < entries.length - 1 ? ',' : '';
+      const cmt = e.comment ? ` -- ${e.comment}` : '';
+      return `${e.code}${sep}${cmt}`;
+    })
+    .join('\n');
+}
+
+/** Bloco-rodapé de linhagem L2 (formato novo, após o CREATE TABLE). */
+function emitLineageFooter(t: Table, fieldMaps: Map<string, FieldLineageEntry>): string[] {
+  if (!fieldMaps.size) return [];
+  const lines = [`-- @lineage ${qualifiedName(t)}`];
+  for (const c of t.columns) {
+    const f = fieldMaps.get(c.name);
+    if (!f) continue;
+    lines.push(`--   ${c.name} <- ${f.sourceTable}.${f.sourceColumn}${formatMapMeta(f)}`);
+  }
+  return lines.length > 1 ? lines : [];
 }
 
 function emitMetaComments(t: Table, refs: Ref[], lineageSources: string[]): string[] {
@@ -90,50 +108,37 @@ function emitMetaComments(t: Table, refs: Ref[], lineageSources: string[]): stri
   return lines;
 }
 
-function sparkCreateTable(t: Table, refs: Ref[], fieldMaps: Map<string, FieldLineageEntry>): string {
+function sparkCreateTable(t: Table): string {
   const qn = qualifiedName(t);
   const pk = pkCols(t);
   const singlePk = pk.length === 1 ? pk[0] : null;
-  const colLines = t.columns.map((c) => {
+  const entries: BodyEntry[] = t.columns.map((c) => {
     const type = typeToSpark(c);
-    const col =
-      singlePk === c.name ? { ...c, nullable: false } : c;
-    return formatColumnLine(col, type, fieldMaps.get(c.name));
+    const col = singlePk === c.name ? { ...c, nullable: false } : c;
+    return { code: columnCode(col, type), comment: c.note || undefined };
   });
-  const pkClause = pk.length ? `,\n  PRIMARY KEY (${pk.join(', ')})` : '';
-  return (
-    `CREATE TABLE IF NOT EXISTS ${qn} (\n` +
-    colLines.join(',\n') +
-    pkClause +
-    `\n) USING DELTA;`
-  );
+  if (pk.length) entries.push({ code: `  PRIMARY KEY (${pk.join(', ')})` });
+  return `CREATE TABLE IF NOT EXISTS ${qn} (\n${assembleBody(entries)}\n) USING DELTA;`;
 }
 
-function oracleCreateTable(
-  t: Table,
-  refs: Ref[],
-  fieldMaps: Map<string, FieldLineageEntry>,
-): string {
+function oracleCreateTable(t: Table, refs: Ref[]): string {
   const qn = qualifiedName(t);
   const pk = pkCols(t);
   const shortName = t.name.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 20);
-  const colLines = t.columns.map((c) => {
-    const type = typeToOracle(c);
-    return formatColumnLine(c, type, fieldMaps.get(c.name));
-  });
-  const constraints: string[] = [];
+  // Oracle: descrição de coluna vai em COMMENT ON COLUMN (não inline).
+  const entries: BodyEntry[] = t.columns.map((c) => ({ code: columnCode(c, typeToOracle(c)) }));
   if (pk.length) {
-    constraints.push(`  CONSTRAINT pk_${shortName} PRIMARY KEY (${pk.join(', ')})`);
+    entries.push({ code: `  CONSTRAINT pk_${shortName} PRIMARY KEY (${pk.join(', ')})` });
   }
   for (let i = 0; i < refs.length; i++) {
     const r = refs[i];
-    constraints.push(
-      `  CONSTRAINT fk_${shortName}_${i + 1} FOREIGN KEY (${r.from.column})\n` +
-      `    REFERENCES ${r.to.table} (${r.to.column})`,
-    );
+    entries.push({
+      code:
+        `  CONSTRAINT fk_${shortName}_${i + 1} FOREIGN KEY (${r.from.column})\n` +
+        `    REFERENCES ${r.to.table} (${r.to.column})`,
+    });
   }
-  const allLines = [...colLines, ...constraints];
-  return `CREATE TABLE ${qn} (\n${allLines.join(',\n')}\n);`;
+  return `CREATE TABLE ${qn} (\n${assembleBody(entries)}\n);`;
 }
 
 function emitInserts(t: Table, dialect: 'spark' | 'oracle'): string[] {
@@ -155,11 +160,7 @@ function tableToSql(t: Table, model: Model, dialect: InputDialect): string {
   const parts: string[] = [];
   const meta = emitMetaComments(t, refs, lineageSources);
   if (meta.length) parts.push(...meta);
-  parts.push(
-    resolved === 'oracle'
-      ? oracleCreateTable(t, refs, fieldMaps)
-      : sparkCreateTable(t, refs, fieldMaps),
-  );
+  parts.push(resolved === 'oracle' ? oracleCreateTable(t, refs) : sparkCreateTable(t));
   if (t.note && resolved === 'oracle' && !t.noteInRecordsOnly) {
     parts.push(`COMMENT ON TABLE ${qualifiedName(t)} IS '${t.note.replace(/'/g, "''")}';`);
   }
@@ -170,6 +171,7 @@ function tableToSql(t: Table, model: Model, dialect: InputDialect): string {
       );
     }
   }
+  parts.push(...emitLineageFooter(t, fieldMaps));
   parts.push(...emitInserts(t, resolved));
   return parts.join('\n');
 }

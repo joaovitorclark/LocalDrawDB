@@ -74,7 +74,8 @@ describe('lineage SQL round-trip', () => {
 
     const exported = modelToInputSql(model0, 'spark');
     expect(exported).toContain('-- @origen: raw.customers');
-    expect(exported).toContain('-- @map <- raw.customers.id');
+    expect(exported).toContain('-- @lineage silver.dim_customer');
+    expect(exported).toContain('--   natural_id <- raw.customers.id');
 
     const model1 = sqlToModel(exported);
     const dimLineage = model1.lineage?.find((l) => l.target === 'silver.dim_customer');

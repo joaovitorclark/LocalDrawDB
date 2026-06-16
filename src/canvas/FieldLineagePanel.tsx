@@ -143,7 +143,7 @@ export function FieldLineagePanel({ tables, mappings, onAdd, onUpdate, onRemove 
             <span className="field-lineage-panel__tbl">{selectedTable}</span>
           </div>
           <p className="field-lineage-panel__hint">
-            Clique num item para editar. Export: DBML <code>LineageFields</code>, SQL <code>@map</code>.
+            Clique num item para editar. Export: DBML <code>LineageFields</code>, SQL <code>@lineage</code>.
           </p>
 
           <ul className="field-lineage-panel__list">

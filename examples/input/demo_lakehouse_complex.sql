@@ -12,6 +12,9 @@
 --
 -- Metadados: @layer, @group, @note, @fk, @origen (L1), @map inline (L2)
 -- @origen aceita múltiplas origens separadas por vírgula.
+-- NOTA: esta fixture usa o formato LEGADO de L2 (`-- @map <- ...` inline na coluna)
+-- de propósito, para exercitar a retrocompatibilidade do import. O formato atual é
+-- o bloco-rodapé `-- @lineage` (ver demo_lakehouse.sql).
 -- =============================================================================
 
 -- --- Bronze: ERP ----------------------------------------------------------------

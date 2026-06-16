@@ -12,8 +12,9 @@ const complexSql = readFileSync(
   'utf8',
 );
 
-function countMapComments(sql: string): number {
-  return (sql.match(/--\s*@(?:map|mapeamento)\s*<-/gi) ?? []).length;
+// Conta mapeamentos L2 em comentário (formato antigo `@map <-` e novo rodapé `col <- src`).
+function countLineageMaps(sql: string): number {
+  return (sql.match(/--[^\n]*<-/g) ?? []).length;
 }
 
 describe('v11-04 demo_lakehouse_complex L2', () => {
@@ -31,15 +32,15 @@ describe('v11-04 demo_lakehouse_complex L2', () => {
     ).toBe(true);
   });
 
-  it('export Oracle emite @map inline para line_id', () => {
+  it('export Oracle emite rodapé @lineage para line_id', () => {
     const model = sqlToModel(complexSql);
     const oracleSql = modelToInputSql(model, 'oracle');
-    expect(oracleSql).toContain('-- @map <- raw.erp_order_lines.line_id');
-    expect(oracleSql).toMatch(/line_id[^\n]*-- @map <- raw\.erp_order_lines\.line_id/);
+    expect(oracleSql).toContain('-- @lineage silver.stg_order_lines');
+    expect(oracleSql).toMatch(/--\s+line_id <- raw\.erp_order_lines\.line_id/);
   });
 
-  it('round-trip preserva ≥95% dos @map da fixture', () => {
-    const sourceMaps = countMapComments(complexSql);
+  it('round-trip preserva ≥95% dos mapeamentos L2 da fixture', () => {
+    const sourceMaps = countLineageMaps(complexSql);
     expect(sourceMaps).toBeGreaterThan(50);
 
     const model0 = sqlToModel(complexSql);
@@ -48,7 +49,7 @@ describe('v11-04 demo_lakehouse_complex L2', () => {
     const exported = modelToInputSql(model1, 'oracle');
     const model2 = sqlToModel(exported);
 
-    const roundMaps = countMapComments(exported);
+    const roundMaps = countLineageMaps(exported);
     const preservedRatio = roundMaps / sourceMaps;
     expect(preservedRatio).toBeGreaterThanOrEqual(0.95);
     expect(model2.lineageFields?.length).toBeGreaterThanOrEqual(
