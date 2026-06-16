@@ -34,20 +34,29 @@ Funcionam em **qualquer** dialeto, acima do `CREATE TABLE`:
 | `-- @note: texto` | `Note:` no bloco **Records** (não no `Table`) |
 | `-- @fk: col -> schema.tabela.col` | `Ref: tabela.col > schema.tabela.col` |
 | `-- @origen: schema.origem` | `Lineage { destino < origem }` (L1 tabela→tabela) |
-| `-- @map <- schema.tabela.col` (inline na coluna) | `LineageFields { dest.col < orig.col }` (L2) |
+| `-- @lineage` (bloco-rodapé após o `CREATE`) | `LineageFields { dest.col < orig.col }` (L2) |
+| `-- texto` inline na coluna | `[note]` no DBML / `COMMENT ON COLUMN` no Oracle |
 
-Exemplo com linhagem:
+### Linhagem L2 (campo→campo): bloco-rodapé `@lineage`
+
+A linhagem de coluna fica num **bloco-rodapé logo após o `CREATE TABLE`** (libera o comentário inline da coluna para a descrição):
 
 ```sql
 -- @layer: prata
 -- @origen: raw.customers
 CREATE TABLE silver.dim_customer (
-  customer_key BIGINT,
-  natural_id BIGINT, -- @map <- raw.customers.id
-  name STRING,       -- @map <- raw.customers.name
+  customer_key BIGINT, -- surrogate key (SCD2)  ← vira nota da coluna
+  natural_id BIGINT,
+  name STRING,
   PRIMARY KEY (customer_key)
 ) USING DELTA;
+-- @lineage silver.dim_customer
+--   natural_id <- raw.customers.id
+--   name <- raw.customers.name [note: 'trim+upper', ref: 'jobs/dim.sql']
 ```
+
+> **Compat:** o formato antigo `coluna TIPO, -- @map <- ...` inline ainda é importado
+> (ver `demo_lakehouse_complex.sql`). O **export** sempre gera o rodapé `@lineage`.
 
 Exemplo com FK e amostra:
 
@@ -67,7 +76,7 @@ INSERT INTO raw.orders (id, customer_id) VALUES (1, 100);
 
 - **`@fk`** = integridade referencial (FK lógica)
 - **`@origen`** = derivação ETL tabela→tabela
-- **`@map`** = derivação ETL coluna→coluna (alias `@mapeamento`)
+- **`@lineage`** = derivação ETL coluna→coluna (rodapé após o `CREATE`; legado `@map` inline ainda lido)
 
 ## Relacionamentos (FK)
 
@@ -105,7 +114,7 @@ A detecção é heurística; use `-- @fk` quando o parser não extrair a constra
 
 Exporte `CREATE TABLE` + opcionalmente `INSERT` para amostra. Recomendado prefixar com `@layer` / `@group` / `@note` se o DDL não trouxer `COMMENT ON`.
 
-`COMMENT ON TABLE` / `COMMENT ON COLUMN` — importados como notes (tabela → Records; coluna → `[note]` no DBML).
+`COMMENT ON TABLE` / `COMMENT ON COLUMN` — importados como notes (tabela → Records; coluna → `[note]` no DBML). Um comentário inline `-- texto` na coluna tem precedência sobre o `COMMENT ON COLUMN` correspondente.
 
 ## Merge no re-import
 
@@ -118,7 +127,7 @@ Exporte `CREATE TABLE` + opcionalmente `INSERT` para amostra. Recomendado prefix
 
 ### [demo_lakehouse.sql](demo_lakehouse.sql) — canônico
 
-- **Lakehouse** (Spark/Delta): bronze → prata → ouro, `@layer` / `@group` / `@note` / `@fk` / `@origen` / `@map`, `INSERT`, PK composta em `gold.report_revenue`, `FOREIGN KEY` em `silver.fact_orders`
+- **Lakehouse** (Spark/Delta): bronze → prata → ouro, `@layer` / `@group` / `@note` / `@fk` / `@origen` / `@lineage` (rodapé) + descrições de coluna inline, `INSERT`, PK composta em `gold.report_revenue`, `FOREIGN KEY` em `silver.fact_orders`
 - **Oracle** (final do arquivo): `staging.cliente` + `staging.pedido` com `COMMENT ON` e `CONSTRAINT … FOREIGN KEY`
 
 ### [demo_lakehouse_complex.sql](demo_lakehouse_complex.sql) — hierarquia ampla
@@ -127,4 +136,4 @@ Exporte `CREATE TABLE` + opcionalmente `INSERT` para amostra. Recomendado prefix
 - **Prata:** staging com `@origen` multi-fonte, dims, fatos, bridge
 - **Ouro:** agregados em cadeia (`fct_revenue_daily` → `fct_customer_spend` → `report_customer_360` → `report_exec_dashboard`)
 - **L1:** até 5 saltos desde bronze; fan-in com `@origen: tabela_a, tabela_b`
-- **L2:** dezenas de `@map` com `[note: '…']` descrevendo transformações ETL
+- **L2 (formato legado):** dezenas de `@map` inline com `[note: '…']` — exercita a retrocompatibilidade do import

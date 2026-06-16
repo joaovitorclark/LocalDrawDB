@@ -260,3 +260,87 @@ INSERT INTO t (id) VALUES (1);
     expect(dbml).toContain("Note: 'Apenas no records'");
   });
 });
+
+describe('linhagem L2 — rodapé @lineage', () => {
+  it('importa o bloco-rodapé com note/ref', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.dim_customer (
+  customer_key BIGINT,
+  natural_id BIGINT,
+  name STRING,
+  PRIMARY KEY (customer_key)
+) USING DELTA;
+-- @lineage silver.dim_customer
+--   natural_id <- raw.customers.id
+--   name <- raw.customers.name [note: 'trim+upper', ref: 'jobs/dim.sql']
+
+CREATE TABLE raw.customers (
+  id BIGINT,
+  name STRING,
+  PRIMARY KEY (id)
+) USING DELTA;
+`);
+    expect(m.lineageFields).toHaveLength(2);
+    expect(m.lineageFields).toContainEqual({
+      targetTable: 'silver.dim_customer',
+      targetColumn: 'natural_id',
+      sourceTable: 'raw.customers',
+      sourceColumn: 'id',
+    });
+    expect(m.lineageFields).toContainEqual({
+      targetTable: 'silver.dim_customer',
+      targetColumn: 'name',
+      sourceTable: 'raw.customers',
+      sourceColumn: 'name',
+      note: 'trim+upper',
+      ref: 'jobs/dim.sql',
+    });
+  });
+
+  it('retrocompat: ainda importa @map inline antigo', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.s (
+  k BIGINT,
+  v STRING, -- @map <- raw.r.v
+  PRIMARY KEY (k)
+) USING DELTA;
+`);
+    expect(m.lineageFields).toContainEqual({
+      targetTable: 'silver.s',
+      targetColumn: 'v',
+      sourceTable: 'raw.r',
+      sourceColumn: 'v',
+    });
+  });
+});
+
+describe('comentário inline → Column.note', () => {
+  it('captura descrição inline e ignora diretivas @', () => {
+    const m = sqlToModel(`
+CREATE TABLE silver.t (
+  id BIGINT, -- chave natural
+  name STRING, -- @map <- raw.r.name
+  total DECIMAL(18,2) -- valor bruto
+) USING DELTA;
+`);
+    const t = m.tables[0];
+    expect(t.columns.find((c) => c.name === 'id')?.note).toBe('chave natural');
+    expect(t.columns.find((c) => c.name === 'total')?.note).toBe('valor bruto');
+    // diretiva @map não vira nota de coluna
+    expect(t.columns.find((c) => c.name === 'name')?.note).toBeUndefined();
+  });
+
+  it('inline tem precedência sobre COMMENT ON COLUMN; COMMENT ON aplica quando não há inline', () => {
+    const m = sqlToModel(`
+CREATE TABLE staging.t (
+  nome VARCHAR2(10), -- inline curta
+  email VARCHAR2(40)
+);
+COMMENT ON COLUMN staging.t.nome IS 'descrição oficial';
+COMMENT ON COLUMN staging.t.email IS 'email do cliente';
+`);
+    const cols = m.tables[0].columns;
+    expect(cols.find((c) => c.name === 'nome')?.note).toBe('inline curta');
+    expect(cols.find((c) => c.name === 'email')?.note).toBe('email do cliente');
+  });
+});

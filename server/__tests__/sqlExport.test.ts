@@ -51,11 +51,20 @@ describe('export input SQL', () => {
     expect(model1.lineageFields?.length).toBe(model0.lineageFields?.length);
   });
 
-  it('export emite @origen e @map inline', () => {
+  it('export emite @origen e rodapé @lineage', () => {
     const model = sqlToModel(demoSql);
     const sparkSql = modelToInputSql(model, 'spark');
     expect(sparkSql).toContain('-- @origen: raw.customers');
-    expect(sparkSql).toContain('-- @map <- raw.customers.id');
+    expect(sparkSql).toContain('-- @lineage silver.dim_customer');
+    expect(sparkSql).toContain('--   natural_id <- raw.customers.id');
     expect(sparkSql).toContain("note: 'SUM(total) por periodo/regiao'");
+    // @map inline não é mais emitido
+    expect(sparkSql).not.toMatch(/^\s*\w+ \w+.*-- @map <-/m);
+  });
+
+  it('export Spark emite descrição de coluna inline (Column.note)', () => {
+    const model = sqlToModel(demoSql);
+    const sparkSql = modelToInputSql(model, 'spark');
+    expect(sparkSql).toMatch(/customer_key BIGINT.*-- surrogate key/);
   });
 });
