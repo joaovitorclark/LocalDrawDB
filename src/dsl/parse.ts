@@ -115,7 +115,9 @@ export function parseDbml(dbml: string): ParseResult {
       }));
       const compositePks: string[][] = [];
       for (const idx of (t as any).indexes ?? []) {
-        const cols = (idx.columns ?? []).map((c: any) => (typeof c === 'string' ? c : c.name));
+        const cols = (idx.columns ?? []).map((c: any) =>
+          typeof c === 'string' ? c : (c.value ?? c.name ?? ''),
+        ).filter(Boolean);
         if (idx.pk && cols.length > 1) {
           compositePks.push(cols);
           for (const n of cols) {

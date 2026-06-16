@@ -1,6 +1,7 @@
 // Mutações de texto do DBML ancoradas no bloco da tabela (via splitDbmlBlocks).
 // Princípio: nomes de coluna são únicos numa tabela -> localização robusta por nome.
 import { splitDbmlBlocks } from './blocks';
+import { quoteDbmlNote } from './dbmlNotes';
 import { splitTableColumn } from './dbmlClean';
 import { dbmlIdent } from './parse';
 
@@ -72,7 +73,7 @@ function applySettings(rest: string, s: ColSettings): string {
   const tokens = [...kept];
   if (s.pk) tokens.push('pk');
   if (s.notNull) tokens.push('not null');
-  if (s.note) tokens.push(`note: '${s.note.replace(/'/g, "\\'")}'`);
+  if (s.note) tokens.push(`note: ${quoteDbmlNote(s.note)}`);
   if (s.default !== undefined && s.default !== '') tokens.push(`default: ${s.default}`);
   if (s.refTarget) tokens.push(`ref: > ${s.refTarget}`);
 
@@ -121,7 +122,7 @@ export function setColumnSetting(
 }
 
 function formatNoteLine(note: string): string {
-  return `  Note: '${note.replace(/'/g, "\\'")}'`;
+  return `  Note: ${quoteDbmlNote(note)}`;
 }
 
 function upsertNoteLine(blockText: string, note: string): string {
@@ -391,7 +392,7 @@ function fieldLineageLine(
   const tq = `${targetTable}.${targetColumn}`;
   const sq = `${sourceTable}.${sourceColumn}`;
   const parts: string[] = [];
-  if (meta?.note) parts.push(`note: '${meta.note.replace(/'/g, "\\'")}'`);
+  if (meta?.note) parts.push(`note: ${quoteDbmlNote(meta.note)}`);
   if (meta?.ref) parts.push(`ref: '${meta.ref.replace(/'/g, "\\'")}'`);
   const bracket = parts.length ? ` [${parts.join(', ')}]` : '';
   return `  ${tq} < ${sq}${bracket}`;
