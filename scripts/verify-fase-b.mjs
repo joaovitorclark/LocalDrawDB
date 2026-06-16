@@ -29,16 +29,20 @@ const markerAttrs = await page
     end: el.getAttribute('marker-end'),
   }));
 
-// Hover-highlight
-await page.locator('.react-flow__node').first().hover();
+// Hover-highlight (Fase 2: CSS no wrapper, sem node--dimmed)
+await page.locator('.react-flow__node-table').first().hover();
 await page.waitForTimeout(250);
 const highlighted = await page.locator('.react-flow__edge.edge--highlight').count();
-const dimmedNodes = await page.locator('.react-flow__node.node--dimmed').count();
+const focusWrap = await page.locator('.canvas-wrap--focus').count();
+const dimmedCount = await page
+  .locator('.canvas-wrap--focus .react-flow__node-table')
+  .evaluateAll((nodes) => nodes.filter((el) => getComputedStyle(el).opacity === '0.35').length)
+  .catch(() => 0);
 
 console.log('header bg (navy ~rgb(19,40,75)):', headerBg);
 console.log('primary bg (verde ~rgb(0,153,93)):', primaryBg);
 console.log('markers:', markerAttrs);
-console.log('arestas destacadas no hover:', highlighted, '| nós esmaecidos:', dimmedNodes);
+console.log('arestas destacadas no hover:', highlighted, '| wrapper focus:', focusWrap, '| nós esmaecidos:', dimmedCount);
 console.log('erros:', errors.length ? errors : 'nenhum');
 
 await browser.close();
@@ -48,7 +52,8 @@ const ok =
   /cf-(many|one)/.test(markerAttrs.start ?? '') &&
   /cf-(many|one)/.test(markerAttrs.end ?? '') &&
   highlighted >= 1 &&
-  dimmedNodes >= 1 &&
+  focusWrap >= 1 &&
+  dimmedCount >= 1 &&
   errors.length === 0;
 console.log(ok ? '\n✅ FASE B OK' : '\n❌ FASE B FALHOU');
 process.exit(ok ? 0 : 1);

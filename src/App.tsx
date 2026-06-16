@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue, startTransition } from 'react';
 import { Editor, type EditorHandle } from './editor/Editor';
 import { Canvas } from './canvas/Canvas';
 import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from './dsl/parse';
 import { validateModel } from './dsl/validateModel';
+import { splitDbmlBlocks } from './dsl/blocks';
 import { organize } from './dsl/organize';
 import { autolayoutLineagePositions, autolayoutPositions } from './canvas/autolayout';
 import { defaultTablePosition } from './canvas/defaultTablePosition';
@@ -16,6 +17,16 @@ import { ColumnPanel } from './canvas/ColumnPanel';
 import { FieldLineagePanel } from './canvas/FieldLineagePanel';
 import { CanvasActionsCtx, type CanvasActions, type TableMeta } from './canvas/actions';
 import { LayersPanel } from './canvas/LayersPanel';
+import { PagesPanel } from './canvas/PagesPanel';
+import { CanvasLeftDock } from './canvas/CanvasLeftDock';
+import { PageImportWizard } from './canvas/PageImportWizard';
+import { allTablesPage, aggregateCrossLinks, buildCanvasViewModel, defaultExternalStubPosition, isExternalStubNodeId, layoutExternalStubsOnTop, pagesFromTableGroups, stubsWithLinkCounts } from './canvas/pageFilter';
+import type { ExternalLinkBadge } from './canvas/actions';
+import {
+  ALL_PAGE_ID,
+  LARGE_DIAGRAM_HINT,
+  PAGE_WIZARD_THRESHOLD,
+} from './canvas/scaleLimits';
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { detectRenames } from './dsl/renameDetect';
@@ -26,11 +37,21 @@ import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import { ExportMenu } from './ExportMenu';
 import { exportInputL2Warning } from './exportWarnings';
 import * as api from './api';
-import type { LineageLink } from './api';
+import type { CanvasPage, LineageLink } from './api';
 
 type Positions = Record<string, { x: number; y: number }>;
 type Colors = Record<string, string>;
 type Snapshot = { dbml: string; positions: Positions; colors: Colors };
+
+function resolveActivePageIds(
+  canvas: api.CanvasState | undefined,
+  tableCount: number,
+): string[] {
+  if (canvas?.activePageIds != null) return canvas.activePageIds;
+  if (canvas?.activePageId != null) return [canvas.activePageId];
+  if (tableCount > PAGE_WIZARD_THRESHOLD) return [];
+  return [ALL_PAGE_ID];
+}
 
 /**
  * Mantém a mesma referência enquanto o conteúdo (por JSON) não muda. Usado para
@@ -83,6 +104,10 @@ export default function App() {
   const [positions, setPositions] = useState<Positions>({});
   const [colors, setColors] = useState<Colors>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const [canvasPages, setCanvasPages] = useState<CanvasPage[]>([allTablesPage()]);
+  const [activePageIds, setActivePageIds] = useState<string[]>([]);
+  const [pageWizardOpen, setPageWizardOpen] = useState(false);
+  const [pageWizardTableCount, setPageWizardTableCount] = useState(0);
   const [status, setStatus] = useState('Carregando…');
   const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const [autoSave, setAutoSave] = useState(false);
@@ -110,13 +135,33 @@ export default function App() {
         const dbml0 = p.dbml || SAMPLE;
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
-        setDbml(dbml0);
+        const parsed0 = parseDbml(dbml0);
+        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] } : parsed0);
+        const pages0 =
+          p.canvas?.pages?.length
+            ? p.canvas.pages
+            : groupPages.length
+              ? [allTablesPage(), ...groupPages]
+              : [allTablesPage()];
+        const active0 = resolveActivePageIds(p.canvas, parsed0.tables.length);
+        startTransition(() => {
+          setDbml(dbml0);
+          setPositions(pos0);
+          setColors(col0);
+          setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
+          setCanvasPages(pages0);
+          setActivePageIds(active0);
+        });
         prevDbmlRef.current = dbml0;
-        setPositions(pos0);
-        setColors(col0);
-        setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
         baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
-        setStatus('Pronto');
+        const n = parsed0.tables.length;
+        setStatus(
+          n > PAGE_WIZARD_THRESHOLD && active0.length === 0
+            ? `${n} tabelas carregadas — marque assuntos no painel Páginas`
+            : n >= LARGE_DIAGRAM_HINT
+              ? `${n} tabelas carregadas — use páginas/camadas para navegar`
+              : 'Pronto',
+        );
         setSaveState('saved');
       })
       .catch(() => {
@@ -183,15 +228,15 @@ export default function App() {
   useEffect(() => {
     if (!loadedRef.current) return;
     setSaveState((s) => (s === 'idle' || s === 'saving' ? s : 'dirty'));
-  }, [dbml, positions, colors, collapsedGroups]);
+  }, [dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
 
   const handleSave = useCallback(() => {
     setSaveState('saving');
     api
-      .saveProject(dbml, { positions, colors, collapsedGroups })
+      .saveProject(dbml, { positions, colors, collapsedGroups, pages: canvasPages, activePageIds })
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('error'));
-  }, [dbml, positions, colors, collapsedGroups]);
+  }, [dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
 
   // Auto-save: quando ativo, salva após 1.5s de dirty.
   useEffect(() => {
@@ -223,8 +268,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [undo, redo, handleSave]);
 
-  // Parse (driva o canvas). Recalcula a cada mudança de DBML.
+  // Parse imediato (validação, editor). Canvas usa parse adiado abaixo.
   const parsed = useMemo(() => parseDbml(dbml), [dbml]);
+  const dbmlBlocks = useMemo(() => splitDbmlBlocks(dbml), [dbml]);
+  const dbmlDeferred = useDeferredValue(dbml);
+  const parsedDeferred = useMemo(() => parseDbml(dbmlDeferred), [dbmlDeferred]);
+  const canvasParsePending = dbml !== dbmlDeferred;
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
   const [canvasModel, setCanvasModel] = useState<ParseResult>({
@@ -234,11 +283,47 @@ export default function App() {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
+  const [canvasModelDeferred, setCanvasModelDeferred] = useState<ParseResult>({
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [],
+  });
+  useEffect(() => {
+    if (!parsedDeferred.error) setCanvasModelDeferred(parsedDeferred);
+  }, [parsedDeferred]);
+
   /** Modelo ao vivo quando o parse é válido; evita canvas defasado após mutações (ex.: remover Ref). */
   const activeModel = useMemo(
     () => (parsed.error ? canvasModel : parsed),
     [parsed, canvasModel],
   );
+
+  const canvasBaseModel = useMemo(
+    () => (parsedDeferred.error ? canvasModelDeferred : parsedDeferred),
+    [parsedDeferred, canvasModelDeferred],
+  );
+
+  const canvasView = useMemo(
+    () => buildCanvasViewModel(canvasBaseModel, canvasPages, activePageIds),
+    [canvasBaseModel, canvasPages, activePageIds],
+  );
+  const canvasActiveModel = canvasView.model;
+  const canvasStubs = useMemo(
+    () => stubsWithLinkCounts(canvasView.stubs, canvasView.crossRefs),
+    [canvasView.stubs, canvasView.crossRefs],
+  );
+  const externalLinksByTable = useMemo(() => {
+    const map = new Map<string, ExternalLinkBadge[]>();
+    for (const link of aggregateCrossLinks(canvasView.crossRefs, canvasView.stubs)) {
+      const list = map.get(link.visibleTable) ?? [];
+      list.push({
+        stubId: link.stubId,
+        label: link.stubLabel,
+        count: link.count,
+        direction: link.direction,
+      });
+      map.set(link.visibleTable, list);
+    }
+    return map;
+  }, [canvasView.crossRefs, canvasView.stubs]);
 
   const editorCursorLineRef = useRef(0);
   const editingTableRef = useRef<string | null>(null);
@@ -256,7 +341,7 @@ export default function App() {
       const next = { ...prev };
       let changed = false;
       for (const id of Object.keys(next)) {
-        if (!ids.has(id)) {
+        if (!ids.has(id) && !isExternalStubNodeId(id)) {
           delete next[id];
           changed = true;
         }
@@ -277,6 +362,27 @@ export default function App() {
     });
   }, [activeModel.tables]);
 
+  useEffect(() => {
+    if (!canvasView.stubs.length) return;
+    setPositions((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const stub of canvasStubs) {
+        if (next[stub.id]) continue;
+        next[stub.id] = defaultExternalStubPosition(stub.id, canvasView.crossRefs, next);
+        changed = true;
+      }
+      const stubIds = new Set(canvasStubs.map((s) => s.id));
+      for (const id of Object.keys(next)) {
+        if (isExternalStubNodeId(id) && !stubIds.has(id)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [canvasStubs, canvasView.crossRefs]);
+
   const mutateDbml = useCallback((fn: (d: string) => string) => {
     setDbml((d) => {
       const next = fn(d);
@@ -288,7 +394,7 @@ export default function App() {
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
 
   const modelIssues = useMemo(() => {
-    const issues = validateModel(activeModel, dbml);
+    const issues = validateModel(activeModel, dbml, dbmlBlocks);
     const parseIssues = parsed.error
       ? [{ severity: 'error' as const, message: parsed.error, line: parsed.errorLine }]
       : [];
@@ -297,7 +403,7 @@ export default function App() {
       message,
     }));
     return [...parseIssues, ...fromImport, ...issues];
-  }, [activeModel, dbml, parsed.error, parsed.errorLine, importWarnings]);
+  }, [activeModel, dbml, dbmlBlocks, parsed.error, parsed.errorLine, importWarnings]);
 
   const pruneCanvasState = useCallback((removedIds: string[]) => {
     const gone = new Set(removedIds);
@@ -444,17 +550,22 @@ export default function App() {
 
   const handleAutolayout = useCallback(() => {
     const lineageMode = useInteraction.getState().lineageMode;
-    setPositions(
-      lineageMode ? autolayoutLineagePositions(activeModel) : autolayoutPositions(activeModel, false),
-    );
+    const layoutModel = activePageIds.includes(ALL_PAGE_ID) ? canvasBaseModel : canvasActiveModel;
+    const base = lineageMode
+      ? autolayoutLineagePositions(layoutModel)
+      : autolayoutPositions(layoutModel, false);
+    const next = canvasStubs.length ? layoutExternalStubsOnTop(base, canvasStubs) : base;
+    setPositions(next);
     setFitViewTrigger((n) => n + 1);
     setStatus(
       lineageMode
-        ? `Canvas reorganizado para linhagem (${activeModel.tables.length} tabelas)`
-        : `Canvas reorganizado (${activeModel.tables.length} tabelas)`,
+        ? `Canvas reorganizado para linhagem (${layoutModel.tables.length} tabelas)`
+        : canvasStubs.length
+          ? `Canvas reorganizado (${layoutModel.tables.length} tabelas, ${canvasStubs.length} grupo(s) externo(s) no topo)`
+          : `Canvas reorganizado (${layoutModel.tables.length} tabelas)`,
     );
     setSaveState('dirty');
-  }, [activeModel]);
+  }, [activePageIds, canvasBaseModel, canvasActiveModel, canvasStubs]);
 
   // Lineage derivado do DBML (ParsedLineage[] → LineageLink[]).
   const lineage = useMemo<LineageLink[]>(() => {
@@ -464,6 +575,46 @@ export default function App() {
     }
     return out;
   }, [activeModel.lineage]);
+
+  const canvasLineage = useMemo<LineageLink[]>(() => {
+    const out: LineageLink[] = [];
+    for (const entry of canvasActiveModel.lineage) {
+      for (const s of entry.sources) out.push({ source: s, target: entry.target });
+    }
+    return out;
+  }, [canvasActiveModel.lineage]);
+
+  const tableGroupsKey = useMemo(() => {
+    const groups = new Set<string>();
+    let ungrouped = false;
+    for (const t of activeModel.tables) {
+      if (t.group) groups.add(t.group);
+      else ungrouped = true;
+    }
+    return `${[...groups].sort().join('\0')}|${ungrouped ? 1 : 0}`;
+  }, [activeModel.tables]);
+
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    const groupPages = pagesFromTableGroups(activeModel);
+    if (!groupPages.length) return;
+    setCanvasPages((prev) => {
+      const ids = new Set(prev.map((p) => p.id));
+      let changed = false;
+      const next = [...prev];
+      if (!ids.has(ALL_PAGE_ID)) {
+        next.unshift(allTablesPage());
+        changed = true;
+      }
+      for (const gp of groupPages) {
+        if (!ids.has(gp.id)) {
+          next.push(gp);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tableGroupsKey, activeModel]);
 
   // Camadas vêm do DBML (LayerGroup) — fonte de verdade exportável.
   // useStable preserva identidade entre keystrokes (o parse recria os arrays), o que
@@ -517,7 +668,7 @@ export default function App() {
   // em uma única passada. Esses valores vão para o `data` do nó, permitindo memoizar
   // `TableNode` por identidade de `data` em vez de recalcular durante cada render.
   const nodeExtras = useMemo(() => {
-    const model = activeModel;
+    const model = canvasActiveModel;
     const fksBySource = new Map<string, { column: string; ref: string }[]>();
     const refsInByTarget = new Map<string, Set<string>>();
     for (const r of model.refs) {
@@ -529,7 +680,7 @@ export default function App() {
       rs.add(r.source);
     }
     const sourcesByTarget = new Map<string, string[]>();
-    for (const l of lineage) {
+    for (const l of canvasLineage) {
       let s = sourcesByTarget.get(l.target);
       if (!s) sourcesByTarget.set(l.target, (s = []));
       s.push(l.source);
@@ -537,7 +688,21 @@ export default function App() {
     const recByKey = new Map<string, (typeof model.records)[number]>();
     for (const rec of model.records) recByKey.set(rec.table, rec);
 
-    const map = new Map<string, { headerColor: string; meta: TableMeta }>();
+    const map = new Map<string, { headerColor: string; meta: TableMeta; externalLinks?: ExternalLinkBadge[]; linkedColumns?: string[] }>();
+    const linkedByTable = new Map<string, Set<string>>();
+    const linkCol = (tableId: string, col: string) => {
+      let set = linkedByTable.get(tableId);
+      if (!set) linkedByTable.set(tableId, (set = new Set()));
+      set.add(col);
+    };
+    for (const r of model.refs) {
+      linkCol(r.source, r.fromCol);
+      linkCol(r.target, r.toCol);
+    }
+    for (const m of model.lineageFields ?? []) {
+      linkCol(m.sourceTable, m.sourceColumn);
+      linkCol(m.targetTable, m.targetColumn);
+    }
     for (const t of model.tables) {
       const sources = sourcesByTarget.get(t.id) ?? [];
       const rec = recByKey.get(t.id) ?? recByKey.get(t.name);
@@ -559,10 +724,17 @@ export default function App() {
       );
       const meta: TableMeta = { sources, sample, pks, fks, refsIn, note: t.note, columnNotes, has };
       const headerColor = colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
-      map.set(t.id, { headerColor, meta });
+      const externalLinks = externalLinksByTable.get(t.id);
+      const linked = linkedByTable.get(t.id);
+      map.set(t.id, {
+        headerColor,
+        meta,
+        ...(externalLinks?.length ? { externalLinks } : {}),
+        ...(linked?.size ? { linkedColumns: [...linked].sort() } : {}),
+      });
     }
     return map;
-  }, [activeModel, lineage, colors, layersArr, layerOf]);
+  }, [canvasActiveModel, canvasLineage, colors, layersArr, layerOf, externalLinksByTable]);
 
   // Ações do canvas (mutações de documento e cores) expostas via contexto.
   const actions = useMemo<CanvasActions>(
@@ -689,18 +861,54 @@ export default function App() {
     }
   }, []);
 
+  const handleChangeActivePages = useCallback(
+    (ids: string[]) => {
+      setActivePageIds(ids);
+      const names = ids.includes(ALL_PAGE_ID)
+        ? 'Todas'
+        : ids
+            .map((id) => canvasPages.find((p) => p.id === id)?.name ?? id)
+            .join(', ');
+      setStatus(ids.length ? `Canvas: ${names}` : 'Canvas vazio — marque assuntos no painel Páginas');
+      setSaveState('dirty');
+    },
+    [canvasPages],
+  );
+
   const handleImport = () =>
     run('Importando', async () => {
       const { dbml: merged, imported, warnings, lineageFieldCount } = await api.importFromInput(dbml);
-      setDbml(merged);
-      setImportWarnings(warnings ?? []);
+      const parsedMerged = parseDbml(merged);
+      const groupPages = pagesFromTableGroups(parsedMerged.error ? activeModel : parsedMerged);
+      const pagesNext =
+        groupPages.length ? [allTablesPage(), ...groupPages] : [allTablesPage()];
+      const tableCount = parsedMerged.tables.length;
+      startTransition(() => {
+        setDbml(merged);
+        setImportWarnings(warnings ?? []);
+        setCanvasPages(pagesNext);
+        if (tableCount > PAGE_WIZARD_THRESHOLD) {
+          setActivePageIds([]);
+          if (groupPages.length > 0) {
+            setPageWizardTableCount(tableCount);
+            setPageWizardOpen(true);
+          }
+        } else {
+          setActivePageIds([ALL_PAGE_ID]);
+        }
+      });
+      prevDbmlRef.current = merged;
       const warnNote = warnings?.length ? ` — ${warnings.length} aviso(s) no painel Problemas` : '';
       const l2Note =
         lineageFieldCount != null && lineageFieldCount > 0
           ? ` — ${lineageFieldCount} mapeamento(s) L2`
           : '';
+      const scaleNote =
+        tableCount >= LARGE_DIAGRAM_HINT
+          ? ` — ${tableCount} tabelas: use páginas/camadas para navegar`
+          : '';
       return imported.length
-        ? `Importado: ${imported.join(', ')}${l2Note}${warnNote}`
+        ? `Importado: ${imported.join(', ')}${l2Note}${warnNote}${scaleNote}`
         : 'Nenhum .sql em data/input/';
     });
 
@@ -837,7 +1045,7 @@ export default function App() {
         <section className="pane pane--canvas">
           <CanvasActionsCtx.Provider value={actions}>
             <Canvas
-              parsed={activeModel}
+              parsed={canvasActiveModel}
               nodeExtras={nodeExtras}
               positions={positions}
               onPositionsChange={setPositions}
@@ -845,9 +1053,9 @@ export default function App() {
               onRemoveRef={handleRemoveRef}
               onRemoveTable={handleRemoveTable}
               onRemoveTables={handleRemoveTables}
-              staleWarning={!!parsed.error}
-              lineage={lineage}
-              lineageFields={activeModel.lineageFields ?? []}
+              staleWarning={!!parsed.error || canvasParsePending}
+              lineage={canvasLineage}
+              lineageFields={canvasActiveModel.lineageFields ?? []}
               onCreateLineage={handleCreateLineage}
               onRemoveLineage={handleRemoveLineage}
               onRemoveFieldLineage={handleRemoveFieldLineage}
@@ -858,6 +1066,53 @@ export default function App() {
               focusNonce={focusNonce}
               onFocusTableDone={clearFocusTable}
               fitViewTrigger={fitViewTrigger}
+              externalStubs={canvasStubs}
+              crossRefs={canvasView.crossRefs}
+            />
+            <CanvasLeftDock>
+              <PagesPanel
+                pages={canvasPages}
+                activePageIds={activePageIds}
+                totalTables={activeModel.tables.length}
+                visibleTables={canvasActiveModel.tables.length}
+                onChangeActivePages={handleChangeActivePages}
+              />
+              <ColumnPanel
+                dbml={dbml}
+                tables={activeModel.tables}
+                onApply={(next) => {
+                  prevDbmlRef.current = next;
+                  setDbml(next);
+                }}
+                onRenameColumn={(table, oldName, newName) => {
+                  setDbml((d) => {
+                    const next = renameColumnAllRefs(d, table, oldName, newName);
+                    prevDbmlRef.current = next;
+                    return next;
+                  });
+                  selectColumn({ table, column: newName });
+                }}
+                onGoToColumn={goToColumn}
+              />
+            </CanvasLeftDock>
+            <PageImportWizard
+              open={pageWizardOpen}
+              tableCount={pageWizardTableCount}
+              pages={canvasPages}
+              onConfirm={(pageIds) => {
+                setActivePageIds(pageIds);
+                setPageWizardOpen(false);
+                const names = pageIds.includes(ALL_PAGE_ID)
+                  ? 'todas'
+                  : pageIds
+                      .map((id) => canvasPages.find((p) => p.id === id)?.name ?? id)
+                      .join(', ');
+                setStatus(`${pageWizardTableCount} tabelas — canvas: ${names}`);
+              }}
+              onDismiss={() => {
+                setActivePageIds([]);
+                setPageWizardOpen(false);
+              }}
             />
             <LayersPanel
               layers={layersArr}
@@ -867,23 +1122,6 @@ export default function App() {
               onAutolayout={handleAutolayout}
             />
             <ProblemsPanel issues={modelIssues} onFocusTable={focusTableWithPan} onGoToLine={goToLine} />
-            <ColumnPanel
-              dbml={dbml}
-              tables={activeModel.tables}
-              onApply={(next) => {
-                prevDbmlRef.current = next;
-                setDbml(next);
-              }}
-              onRenameColumn={(table, oldName, newName) => {
-                setDbml((d) => {
-                  const next = renameColumnAllRefs(d, table, oldName, newName);
-                  prevDbmlRef.current = next;
-                  return next;
-                });
-                selectColumn({ table, column: newName });
-              }}
-              onGoToColumn={goToColumn}
-            />
             <FieldLineagePanel
               tables={activeModel.tables}
               mappings={activeModel.lineageFields ?? []}

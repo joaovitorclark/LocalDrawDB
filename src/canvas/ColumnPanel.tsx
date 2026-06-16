@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useInteraction } from '../store/interaction';
 import { getColumnSettings, setColumnSetting, type ColSettings } from '../dsl/edit';
 import type { TableView } from '../dsl/parse';
-import { useDraggablePanel } from './useDraggablePanel';
 
 type Props = {
   dbml: string;
@@ -27,7 +26,6 @@ export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColum
   const selectColumn = useInteraction((s) => s.selectColumn);
   const [nameDraft, setNameDraft] = useState('');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
-  const { panelRef, dragStyle, onDragStart } = useDraggablePanel('localdrawdb.columnPanelPos');
 
   const table = useMemo(
     () => (sel ? tables.find((t) => t.id === sel.table) : undefined),
@@ -86,21 +84,8 @@ export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColum
   const refValue = settings.refTarget ?? '';
 
   return (
-    <div
-      ref={panelRef}
-      className={`column-panel ${collapsed ? 'is-collapsed' : ''}`}
-      style={dragStyle}
-    >
+    <div className={`column-panel ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="column-panel__head">
-        <button
-          type="button"
-          className="column-panel__grip"
-          title="Arrastar painel"
-          aria-label="Arrastar painel"
-          onPointerDown={onDragStart}
-        >
-          ⠿
-        </button>
         <button
           type="button"
           className="column-panel__collapse"
