@@ -10,12 +10,12 @@
 |------|--------|--------|
 | **F0 — Modelo + round-trip DBML** | ✅ feito | `e31e103` |
 | **F1 — Presets de camadas** | ✅ feito | `32c3426` |
-| **F2 — Export dbt fiel** | ⬜ a fazer | — |
+| **F2 — Export dbt fiel** | ✅ feito | (este commit) |
 | **F3 — Import dbt (3 formatos)** | ⬜ a fazer | — |
 | **F4 — UI (tests/materialization/source)** | ⬜ a fazer | — |
 | **F5 — dbt executável** | ⏸ futuro (fora de escopo agora) | — |
 
-Suíte: **245 testes verdes**, typecheck limpo. Restrições inegociáveis: round-trip preserva
+Suíte: **258 testes verdes**, typecheck limpo. Restrições inegociáveis: round-trip preserva
 semântica, DBML/SQL legado intacto, fixtures dbt **genéricas** (sem dados proprietários).
 
 ## O que F0 entregou (fundação — já no modelo)
@@ -44,23 +44,22 @@ ids de preset conhecidos. **Sem mudança no que o painel exibe por padrão.**
 
 ## A FAZER
 
-### F2 — Export dbt fiel (`server/dbtExport.ts`, `server/exportDispatch.ts`)
-Hoje é stub (models `.sql` placeholder + schema.yml só PK). Reescrever para emitir, a partir
-do `Model` enriquecido:
-- `dbt_project.yml` real (paths, profile placeholder, config por camada).
-- `models/**/sources.yml` para tabelas com `resourceType:'source'` (ou camada raw via
-  `resourceTypeForLayer`).
-- `schema.yml` completo: descrições (`Table.note`/`Column.note`), **tests por coluna**
-  derivados (unique de `Column.unique`/pk; not_null de `nullable===false`/pk; accepted_values
-  de `Column.tests`; **FK→`relationships`** de `model.refs`), materialization+tags por model.
-- Stubs `.sql` com `ref()`/`source()` **corretos** a partir de `refs`/`lineage` (sem prometer
-  `dbt run` verde).
-- Materialization por camada via `materializationForLayer(table.layer)` quando não setada.
-- **Reimportável** por F3 (round-trip dbt→model→dbt deve preservar semântica).
-- Sugestão de helper: `columnTests(table, col, refs): ColumnTest[]` derivando a lista unificada
-  (reuso em F4).
-- Testes: `server/__tests__/dbtExport.test.ts` (ampliar) — verificar sources.yml, relationships,
-  materialization por camada, accepted_values.
+### ~~F2 — Export dbt fiel~~ ✅ FEITO (`server/dbtExport.ts`)
+Reescrito de stub para export fiel. Cobertura em `server/__tests__/dbtExport.test.ts` (13 testes).
+- `dbt_project.yml` real (paths, profile placeholder, default `+materialized: view`).
+- `models/<schema>/sources.yml` para tabelas source (`resourceType:'source'` **ou** camada cujo
+  `resourceTypeForLayer` é `source`, ex.: bronze/raw). Sources **não** geram `.sql` nem entram
+  como model no `schema.yml`.
+- `schema.yml` completo: descrições (`Table.note`/`Column.note`), `config` (materialized+tags),
+  **tests por coluna** via helper `columnTests` (unique de pk-simples/`unique`; not_null de
+  pk/`nullable===false`; accepted_values de `Column.tests`; **FK→`relationships`** de `model.refs`,
+  com `to: ref('<dest>')`). Usa chave `data_tests` (dbt moderno).
+- Stubs `.sql` com `{{ config() }}` + CTEs `ref()`/`source()` por upstream (lineage L1 primeiro,
+  refs como fallback). Sem prometer `dbt run` verde.
+- Materialization: explícita > `materializationForLayer(table.layer)` > `view`.
+- **Decisões para F3 honrar no round-trip:** chave `data_tests`; source name = schema; PK composta
+  → `not_null` por coluna mas **sem** `unique` por coluna (unicidade é da combinação).
+- **Reuso F4:** `columnTests(table, col, refs)` é exportado.
 
 ### F3 — Import dbt (novo `server/dbtImport.ts`; `server/routes.ts`; `server/files.ts`)
 Aceitar **3 formatos** (decisão fechada), detecção por extensão/forma no fluxo de import
