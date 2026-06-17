@@ -8,14 +8,16 @@
 
 | Fase | Estado | Commit |
 |------|--------|--------|
-| **F0 — Modelo + round-trip DBML** | ✅ feito | `e31e103` |
-| **F1 — Presets de camadas** | ✅ feito | `32c3426` |
-| **F2 — Export dbt fiel** | ✅ feito | (este commit) |
-| **F3 — Import dbt (3 formatos)** | ⬜ a fazer | — |
+| **F0 — Modelo + round-trip DBML** | ✅ feito | `04d4f33` |
+| **F1 — Presets de camadas** | ✅ feito | `997ae7f` |
+| **F2 — Export dbt fiel** | ✅ feito | `360ef9e` |
+| **F3 — Import dbt (3 formatos)** | ✅ feito | (este commit) |
 | **F4 — UI (tests/materialization/source)** | ⬜ a fazer | — |
 | **F5 — dbt executável** | ⏸ futuro (fora de escopo agora) | — |
 
-Suíte: **258 testes verdes**, typecheck limpo. Restrições inegociáveis: round-trip preserva
+> Branch rebaseada na `main` após merge do PR #14 (multi-projeto).
+
+Suíte: **294 testes verdes**, typecheck limpo. Restrições inegociáveis: round-trip preserva
 semântica, DBML/SQL legado intacto, fixtures dbt **genéricas** (sem dados proprietários).
 
 ## O que F0 entregou (fundação — já no modelo)
@@ -61,20 +63,22 @@ Reescrito de stub para export fiel. Cobertura em `server/__tests__/dbtExport.tes
   → `not_null` por coluna mas **sem** `unique` por coluna (unicidade é da combinação).
 - **Reuso F4:** `columnTests(table, col, refs)` é exportado.
 
-### F3 — Import dbt (novo `server/dbtImport.ts`; `server/routes.ts`; `server/files.ts`)
-Aceitar **3 formatos** (decisão fechada), detecção por extensão/forma no fluxo de import
-existente (generalizar `readInputSql*` para `.yml`/`.json`; reusar `mergeModel`):
-1. **Projeto dbt (pasta):** `dbt_project.yml` + `models/**/schema.yml` + `models/**/*.sql`
-   (extrair `ref()`/`source()` → `lineage`; descrições/tests do schema.yml → notes + tests).
-2. **dbt-docs:** `manifest.json`/`catalog.json` (DAG, tipos reais, tests/descrições resolvidos
-   — caminho mais robusto; preferir quando presente). Parsear defensivamente (versões variam).
-3. **schema.yml avulso:** `schema.yml`/`properties.yml` soltos no input.
-- Usar `js-yaml` (já é dependência). Mapear materialization/tags/meta para os campos F0;
-  tests (`unique`,`not_null`,`accepted_values`,`relationships`) para `Column`/`Ref`.
-- Import por projeto: usar `readInputSqlForSlug`/input do projeto ativo (Spec 1 já trouxe).
-- **Fixtures genéricas** em `examples/` (ex.: `examples/dbt/` mini projeto + um `manifest.json`
-  pequeno). Nada proprietário.
-- Testes: `server/__tests__/dbtImport.test.ts` (cada formato → model esperado; round-trip com F2).
+### ~~F3 — Import dbt~~ ✅ FEITO (`server/dbtImport.ts`, `server/routes.ts`, `server/files.ts`)
+Três formatos via `dbtFilesToModel(files)` (dispatcher; prefere manifest):
+1. **Projeto dbt (pasta):** `dbtProjectToModel` — `models/**/schema.yml` (models+sources) +
+   `models/**/*.sql` (regex extrai `ref()`/`source()`/`config` → lineage L1 + materialization/tags).
+   Schema = diretório-pai do arquivo. `dbt_project.yml` é ignorado (models é objeto, não array).
+2. **dbt-docs:** `manifestToModel` — `nodes`/`sources`/tests (`test_metadata`) → tipos reais,
+   materialization/tags, tests resolvidos e lineage de `depends_on`. Parse defensivo.
+3. **schema.yml avulso:** `schemaYmlToModel` — base reusada pelos outros dois.
+- Inversão da codificação F2: `unique`+`not_null` (primeira coluna) → PK; seguintes → `unique`+not
+  null; `accepted_values` → `Column.tests`; `relationships` → `Ref`; source → `resourceType:'source'`.
+- **Fiação:** `readImportInputsForSlug` (novo, recursivo, lê `.sql/.yml/.yaml/.json`); `runImport`
+  separa artefatos dbt do SQL DDL e mescla via `mergeModel`. Rotas `/api/import` e
+  `/api/projects/:id/import` usam o leitor novo.
+- **Fixtures genéricas:** `examples/dbt/` (projeto pasta + `manifest.json`). Nada proprietário.
+- Testes: `server/__tests__/dbtImport.test.ts` (17, inclui round-trip F2→F3 e os fixtures) +
+  `server/__tests__/dbtImportRoute.test.ts` (integração da rota).
 
 ### F4 — UI (`src/canvas/ColumnPanel.tsx`, `TableInfoPopover.tsx`, `LayersPanel.tsx`)
 - ColumnPanel: ver/editar tests por coluna (unique/not_null já via pk/nullable; accepted_values;

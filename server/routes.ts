@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { dbmlToModel, modelToDbml } from './dbmlIo.ts';
 import { mergeModel, sqlToModel } from './sqlImport.ts';
+import { dbtFilesToModel } from './dbtImport.ts';
 import {
   DATA_DIR,
   ROOT,
@@ -17,8 +18,8 @@ import {
   loadProjectBySlug,
   saveProjectBySlug,
   migrateLegacy,
-  readInputSql,
-  readInputSqlForSlug,
+  readImportInputsForSlug,
+  getActiveSlug,
   saveProject,
   writeOutput,
 } from './files.ts';
@@ -67,7 +68,14 @@ async function runImport(
   }
   let merged = model;
   const imported: string[] = [];
-  for (const { file, content } of inputs) {
+
+  // Separa artefatos dbt (.yml/.json e .sql com Jinja) do SQL DDL puro.
+  const isDbtArtifact = (f: { file: string; content: string }) =>
+    /\.(ya?ml|json)$/i.test(f.file) || (/\.sql$/i.test(f.file) && f.content.includes('{{'));
+  const dbtInputs = inputs.filter(isDbtArtifact);
+  const ddlInputs = inputs.filter((f) => !isDbtArtifact(f));
+
+  for (const { file, content } of ddlInputs) {
     const incoming = sqlToModel(content);
     if (incoming.warnings?.length) {
       for (const w of incoming.warnings) warnings.push(`${file}: ${w}`);
@@ -77,6 +85,19 @@ async function runImport(
       const refCount = incoming.refs.length;
       imported.push(
         `${file} (${incoming.tables.length} tabela(s)${refCount ? `, ${refCount} ref(s)` : ''})`,
+      );
+    }
+  }
+
+  // Import dbt: todos os artefatos são considerados em conjunto (um projeto dbt
+  // abrange schema.yml + *.sql; manifest.json é autossuficiente).
+  if (dbtInputs.length) {
+    const dbtModel = dbtFilesToModel(dbtInputs);
+    if (dbtModel?.tables.length) {
+      merged = mergeModel(merged, dbtModel);
+      const refCount = dbtModel.refs.length;
+      imported.push(
+        `dbt: ${dbtInputs.map((f) => f.file).join(', ')} (${dbtModel.tables.length} tabela(s)${refCount ? `, ${refCount} ref(s)` : ''})`,
       );
     }
   }
@@ -211,7 +232,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const proj = await getProject(req.params.id);
       const baseDbml = req.body?.dbml ?? '';
-      const inputs = await readInputSqlForSlug(proj.slug);
+      const inputs = await readImportInputsForSlug(proj.slug);
       return runImport(inputs, baseDbml);
     } catch (e: any) {
       if (e?.message?.includes('não encontrado')) {
@@ -235,7 +256,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: DbmlBody }>('/api/import', async (req) => {
     const baseDbml = req.body?.dbml ?? '';
-    const inputs = await readInputSql();
+    const inputs = await readImportInputsForSlug(await getActiveSlug());
     return runImport(inputs, baseDbml);
   });
 

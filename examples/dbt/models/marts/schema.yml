@@ -1,0 +1,28 @@
+version: 2
+models:
+  - name: orders
+    description: Pedidos limpos e enriquecidos
+    config:
+      materialized: incremental
+      tags: [sales, core]
+    columns:
+      - name: id
+        description: Chave do pedido
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: FK do cliente
+        data_tests:
+          - not_null
+          - relationships: { to: "ref('customers')", field: id }
+      - name: status
+        data_tests:
+          - accepted_values: { values: [placed, shipped, completed, returned] }
+  - name: customers
+    description: Dimensão de clientes
+    config:
+      materialized: table
+      tags: [core]
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+      - name: name
