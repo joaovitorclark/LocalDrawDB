@@ -320,6 +320,14 @@ export async function getActiveId(): Promise<string> {
   return reg.activeId;
 }
 
+/** Retorna o ProjectMeta de um projeto pelo id. Lança erro se não encontrado. */
+export async function getProject(id: string): Promise<ProjectMeta> {
+  const reg = await readRegistry();
+  const proj = reg.projects.find((p) => p.id === id);
+  if (!proj) throw new Error(`Projeto não encontrado: ${id}`);
+  return proj;
+}
+
 // ──────────────────────────────────────────────────────────────
 // Helpers internos: resolve slug do projeto ativo
 // ──────────────────────────────────────────────────────────────
