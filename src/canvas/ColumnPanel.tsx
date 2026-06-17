@@ -83,6 +83,14 @@ export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColum
 
   const refValue = settings.refTarget ?? '';
 
+  // Tests dbt derivados para a coluna (read-only summary).
+  const selCol = table?.columns.find((c) => c.name === sel.column);
+  const dbtTests: string[] = [];
+  if (settings.pk) dbtTests.push('unique', 'not_null');
+  else if (settings.notNull) dbtTests.push('not_null');
+  if (selCol?.acceptedValues?.length) dbtTests.push(`accepted_values: [${selCol.acceptedValues.join(', ')}]`);
+  if (settings.refTarget) dbtTests.push(`relationships → ${settings.refTarget}`);
+
   return (
     <div className={`column-panel ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="column-panel__head">
@@ -170,6 +178,16 @@ export function ColumnPanel({ dbml, tables, onApply, onRenameColumn, onGoToColum
               placeholder="ex.: 0 ou 'x'"
             />
           </label>
+          {dbtTests.length > 0 && (
+            <div className="column-panel__tests">
+              <span className="column-panel__tests-label">Tests dbt</span>
+              <ul>
+                {dbtTests.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -2,6 +2,205 @@
 import { splitDbmlBlocks } from './blocks';
 import { parseRecords, type ParsedRecords } from './records';
 
+// ---- Tipos para o bloco Dbt { } ----
+
+export type ParsedDbtColumn = {
+  /** Testes accepted_values serializados no bloco (unique/not_null são derivados do DBML nativo). */
+  acceptedValues?: string[];
+};
+
+export type ParsedDbtTable = {
+  tableName: string; // qualifiedName (schema.tabela ou tabela)
+  resourceType?: 'model' | 'source' | 'seed' | 'snapshot';
+  materialization?: 'table' | 'view' | 'incremental' | 'ephemeral';
+  tags?: string[];
+  meta?: Record<string, unknown>;
+  columns?: Record<string, ParsedDbtColumn>;
+};
+
+/** Faz parse de um bloco `Dbt { ... }`. */
+export function parseDbtBlock(block: string): ParsedDbtTable[] {
+  const h = /Dbt\s*\{/i.exec(block);
+  if (!h) return [];
+  const body = block.slice(h.index + h[0].length);
+  const end = body.lastIndexOf('}');
+  const inner = end >= 0 ? body.slice(0, end) : body;
+  const lines = inner.split('\n').map((l) => l.trimEnd());
+  const tables: ParsedDbtTable[] = [];
+  let current: ParsedDbtTable | null = null;
+  let inMeta = false;
+  let metaDepth = 0;
+  let metaLines: string[] = [];
+  let inColumns = false;
+  let currentColName: string | null = null;
+  let colAccepted: string[] | null = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('//')) continue;
+
+    // Rastreia bloco meta { } (pode ter profundidade arbitrária)
+    if (inMeta) {
+      metaDepth += (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
+      if (metaDepth <= 0) {
+        // Fim do meta: faz parse simples de chave: valor
+        inMeta = false;
+        if (current) {
+          current.meta = parseSimpleKv(metaLines);
+        }
+        metaLines = [];
+        metaDepth = 0;
+      } else {
+        metaLines.push(line);
+      }
+      continue;
+    }
+
+    // Início de um novo sub-bloco de tabela: "table tableName {"
+    const tableHeader = /^table\s+(\S+)\s*\{/i.exec(line);
+    if (tableHeader) {
+      // Fecha coluna anterior se aberta
+      if (current && currentColName && colAccepted !== null) {
+        current.columns ??= {};
+        current.columns[currentColName] = { acceptedValues: colAccepted };
+        currentColName = null;
+        colAccepted = null;
+      }
+      inColumns = false;
+      current = { tableName: tableHeader[1] };
+      tables.push(current);
+      continue;
+    }
+
+    if (!current) continue;
+
+    // Fim de um sub-bloco de tabela "}"
+    if (line === '}') {
+      if (inColumns && currentColName && colAccepted !== null) {
+        current.columns ??= {};
+        current.columns[currentColName] = { acceptedValues: colAccepted };
+        currentColName = null;
+        colAccepted = null;
+      }
+      inColumns = false;
+      current = null;
+      continue;
+    }
+
+    // Dentro de um sub-bloco de colunas: "columns {"
+    const colsHeader = /^columns\s*\{/i.exec(line);
+    if (colsHeader) {
+      // Fecha coluna anterior
+      if (currentColName && colAccepted !== null) {
+        current.columns ??= {};
+        current.columns[currentColName] = { acceptedValues: colAccepted };
+        currentColName = null;
+        colAccepted = null;
+      }
+      inColumns = true;
+      continue;
+    }
+
+    if (inColumns) {
+      // Fim do bloco de colunas
+      if (line === '}') {
+        if (currentColName && colAccepted !== null) {
+          current.columns ??= {};
+          current.columns[currentColName] = { acceptedValues: colAccepted };
+          currentColName = null;
+          colAccepted = null;
+        }
+        inColumns = false;
+        continue;
+      }
+
+      // Início de uma coluna: "colName {"
+      const colHeader = /^(\S+)\s*\{/i.exec(line);
+      if (colHeader) {
+        // Fecha coluna anterior
+        if (currentColName && colAccepted !== null) {
+          current.columns ??= {};
+          current.columns[currentColName] = { acceptedValues: colAccepted };
+        }
+        currentColName = colHeader[1];
+        colAccepted = null;
+        continue;
+      }
+
+      // Fim de coluna
+      if (line === '}' && currentColName) {
+        current.columns ??= {};
+        current.columns[currentColName] = { acceptedValues: colAccepted ?? [] };
+        currentColName = null;
+        colAccepted = null;
+        continue;
+      }
+
+      // accepted_values dentro de coluna
+      if (currentColName) {
+        const av = /^accepted_values\s*:\s*\[([^\]]*)\]/i.exec(line);
+        if (av) {
+          colAccepted = av[1].split(',').map((v) => v.trim().replace(/^'|'$/g, '')).filter(Boolean);
+          continue;
+        }
+      }
+      continue;
+    }
+
+    // Propriedades da tabela
+    const resourceType = /^resource_type\s*:\s*(\S+)/i.exec(line);
+    if (resourceType) {
+      const rt = resourceType[1] as 'model' | 'source' | 'seed' | 'snapshot';
+      current.resourceType = rt;
+      continue;
+    }
+
+    const materialization = /^materialization\s*:\s*(\S+)/i.exec(line);
+    if (materialization) {
+      current.materialization = materialization[1] as 'table' | 'view' | 'incremental' | 'ephemeral';
+      continue;
+    }
+
+    const tags = /^tags\s*:\s*\[([^\]]*)\]/i.exec(line);
+    if (tags) {
+      current.tags = tags[1].split(',').map((v) => v.trim().replace(/^'|'$/g, '')).filter(Boolean);
+      continue;
+    }
+
+    const meta = /^meta\s*\{/i.exec(line);
+    if (meta) {
+      inMeta = true;
+      metaDepth = 1;
+      metaLines = [];
+      continue;
+    }
+  }
+
+  return tables;
+}
+
+/** Parse simples de bloco de pares chave: valor (sem aninhamento). */
+function parseSimpleKv(lines: string[]): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const line of lines) {
+    const m = /^\s*(\w+)\s*:\s*(.+)$/.exec(line);
+    if (!m) continue;
+    const key = m[1].trim();
+    const rawVal = m[2].trim().replace(/^'|'$/g, '');
+    // Tenta número
+    if (/^-?\d+(\.\d+)?$/.test(rawVal)) {
+      result[key] = Number(rawVal);
+    } else if (rawVal === 'true') {
+      result[key] = true;
+    } else if (rawVal === 'false') {
+      result[key] = false;
+    } else {
+      result[key] = rawVal;
+    }
+  }
+  return result;
+}
+
 export type ParsedLayerGroup = { id: string; name: string; color?: string; tables: string[] };
 export type ParsedLineage = { target: string; sources: string[] };
 export type ParsedFieldLineage = {
@@ -92,7 +291,7 @@ export function parseLineageFieldsBlock(block: string): ParsedFieldLineage[] {
   return out;
 }
 
-const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields']);
+const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt']);
 
 /** Remove blocos extras antes do @dbml/core. */
 export function cleanDbml(src: string): string {
@@ -123,13 +322,14 @@ function buildCleanFromBlocks(
   return { clean: keepTexts.join('\n'), mapCleanLineToOriginal };
 }
 
-/** Remove blocos extras e extrai metadados custom (Records, LayerGroup, Lineage, …). */
+/** Remove blocos extras e extrai metadados custom (Records, LayerGroup, Lineage, Dbt, …). */
 export function extractRecords(src: string): {
   clean: string;
   records: ParsedRecords[];
   layerGroups: ParsedLayerGroup[];
   lineage: ParsedLineage[];
   lineageFields: ParsedFieldLineage[];
+  dbtTables: ParsedDbtTable[];
   mapCleanLineToOriginal: CleanLineMap;
 } {
   const blocks = splitDbmlBlocks(src);
@@ -137,6 +337,7 @@ export function extractRecords(src: string): {
   const layerGroups: ParsedLayerGroup[] = [];
   const lineage: ParsedLineage[] = [];
   const lineageFields: ParsedFieldLineage[] = [];
+  const dbtTables: ParsedDbtTable[] = [];
   for (const b of blocks) {
     if (b.type === 'records') {
       const pr = parseRecords(b.text);
@@ -148,8 +349,10 @@ export function extractRecords(src: string): {
       lineage.push(...parseLineageBlock(b.text));
     } else if (b.type === 'lineageFields') {
       lineageFields.push(...parseLineageFieldsBlock(b.text));
+    } else if (b.type === 'dbt') {
+      dbtTables.push(...parseDbtBlock(b.text));
     }
   }
   const { clean, mapCleanLineToOriginal } = buildCleanFromBlocks(blocks);
-  return { clean, records, layerGroups, lineage, lineageFields, mapCleanLineToOriginal };
+  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, mapCleanLineToOriginal };
 }

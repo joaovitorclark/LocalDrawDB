@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Layer } from '../api';
+import { LAYER_PRESETS } from '../layers';
 import { useInteraction } from '../store/interaction';
 
 type Props = {
@@ -86,6 +87,23 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
           >
             + camada
           </button>
+          <select
+            className="layers-panel__preset"
+            value=""
+            title="Insere as camadas de uma nomenclatura medallion (dbt)"
+            onChange={(e) => {
+              const preset = LAYER_PRESETS[e.target.value];
+              if (preset) for (const l of preset.layers) onAddLayer(l.name, l.color);
+              e.currentTarget.value = '';
+            }}
+          >
+            <option value="">+ inserir preset…</option>
+            {Object.values(LAYER_PRESETS).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
 
           <div className="layers-panel__sep" />
           <label className="layers-panel__row">

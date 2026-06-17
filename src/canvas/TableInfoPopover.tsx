@@ -38,6 +38,18 @@ export function TableInfoPopover({ meta, style }: { meta: TableMeta; style?: CSS
           {meta.refsIn.length > 0 && <div>referenciada por: {meta.refsIn.join(', ')}</div>}
         </section>
       )}
+      {(meta.resourceType || meta.materialization || (meta.tags && meta.tags.length > 0)) && (
+        <section>
+          <h5>dbt</h5>
+          <div className="dbt-badges">
+            {meta.resourceType && <span className={`dbt-badge dbt-rt-${meta.resourceType}`}>{meta.resourceType}</span>}
+            {meta.materialization && <span className="dbt-badge dbt-mat">{meta.materialization}</span>}
+            {meta.tags?.map((tag) => (
+              <span key={tag} className="dbt-badge dbt-tag">#{tag}</span>
+            ))}
+          </div>
+        </section>
+      )}
       {(meta.note || meta.columnNotes.length > 0) && (
         <section>
           <h5>Comentários</h5>

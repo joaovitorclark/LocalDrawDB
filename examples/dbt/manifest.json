@@ -1,0 +1,76 @@
+{
+  "metadata": { "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v11.json" },
+  "nodes": {
+    "model.shop.orders": {
+      "resource_type": "model",
+      "name": "orders",
+      "schema": "marts",
+      "description": "Pedidos limpos e enriquecidos",
+      "config": { "materialized": "incremental", "tags": ["sales", "core"] },
+      "columns": {
+        "id": { "name": "id", "description": "Chave do pedido", "data_type": "bigint" },
+        "customer_id": { "name": "customer_id", "description": "FK do cliente", "data_type": "bigint" },
+        "status": { "name": "status", "data_type": "varchar" }
+      },
+      "depends_on": { "nodes": ["source.shop.raw.raw_orders", "model.shop.customers"] }
+    },
+    "model.shop.customers": {
+      "resource_type": "model",
+      "name": "customers",
+      "schema": "marts",
+      "description": "Dimensão de clientes",
+      "config": { "materialized": "table", "tags": ["core"] },
+      "columns": {
+        "id": { "name": "id", "data_type": "bigint" },
+        "name": { "name": "name", "data_type": "varchar" }
+      },
+      "depends_on": { "nodes": ["source.shop.raw.raw_customers"] }
+    },
+    "test.shop.unique_orders_id.1": {
+      "resource_type": "test",
+      "column_name": "id",
+      "test_metadata": { "name": "unique" },
+      "depends_on": { "nodes": ["model.shop.orders"] }
+    },
+    "test.shop.not_null_orders_id.2": {
+      "resource_type": "test",
+      "column_name": "id",
+      "test_metadata": { "name": "not_null" },
+      "depends_on": { "nodes": ["model.shop.orders"] }
+    },
+    "test.shop.accepted_values_orders_status.3": {
+      "resource_type": "test",
+      "column_name": "status",
+      "test_metadata": { "name": "accepted_values", "kwargs": { "values": ["placed", "shipped", "completed", "returned"] } },
+      "depends_on": { "nodes": ["model.shop.orders"] }
+    },
+    "test.shop.relationships_orders_customer_id.4": {
+      "resource_type": "test",
+      "column_name": "customer_id",
+      "test_metadata": { "name": "relationships", "kwargs": { "to": "ref('customers')", "field": "id" } },
+      "depends_on": { "nodes": ["model.shop.orders", "model.shop.customers"] }
+    }
+  },
+  "sources": {
+    "source.shop.raw.raw_orders": {
+      "resource_type": "source",
+      "name": "raw_orders",
+      "source_name": "raw",
+      "schema": "raw",
+      "description": "Pedidos crus do sistema transacional (genérico)",
+      "columns": {
+        "id": { "name": "id", "data_type": "bigint" },
+        "customer_id": { "name": "customer_id", "data_type": "bigint" },
+        "status": { "name": "status", "data_type": "varchar" }
+      }
+    },
+    "source.shop.raw.raw_customers": {
+      "resource_type": "source",
+      "name": "raw_customers",
+      "source_name": "raw",
+      "schema": "raw",
+      "description": "Clientes crus (genérico)",
+      "columns": { "id": { "name": "id", "data_type": "bigint" } }
+    }
+  }
+}

@@ -331,7 +331,7 @@ export async function getProject(id: string): Promise<ProjectMeta> {
 // ──────────────────────────────────────────────────────────────
 // Helpers internos: resolve slug do projeto ativo
 // ──────────────────────────────────────────────────────────────
-async function getActiveSlug(): Promise<string> {
+export async function getActiveSlug(): Promise<string> {
   const reg = await readRegistry();
   const proj = reg.projects.find((p) => p.id === reg.activeId);
   if (!proj) {
@@ -377,6 +377,35 @@ export async function readInputSqlForSlug(slug: string): Promise<{ file: string;
       content: await fs.readFile(path.join(inputDir, file), 'utf8'),
     })),
   );
+}
+
+/** Extensões consideradas no import (SQL DDL + artefatos dbt). */
+const IMPORT_EXTS = ['.sql', '.yml', '.yaml', '.json'];
+
+/**
+ * Lê recursivamente o input dir do projeto, retornando todos os arquivos de
+ * import (.sql/.yml/.yaml/.json) com caminho relativo ao input dir. Necessário
+ * para projetos dbt em pasta (models/**\/schema.yml + *.sql).
+ */
+export async function readImportInputsForSlug(
+  slug: string,
+): Promise<{ file: string; content: string }[]> {
+  const inputDir = projectInputDir(slug);
+  await ensureDir(inputDir);
+  const out: { file: string; content: string }[] = [];
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+      } else if (IMPORT_EXTS.includes(path.extname(e.name).toLowerCase())) {
+        out.push({ file: path.relative(inputDir, full), content: await fs.readFile(full, 'utf8') });
+      }
+    }
+  };
+  await walk(inputDir);
+  return out;
 }
 
 export async function writeOutputForSlug(

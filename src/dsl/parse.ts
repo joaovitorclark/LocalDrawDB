@@ -26,7 +26,15 @@ export {
 } from './dbmlClean';
 
 export type Cardinality = '*' | '1';
-export type ColumnView = { name: string; type: string; pk: boolean; notNull: boolean; note?: string };
+export type ColumnView = {
+  name: string;
+  type: string;
+  pk: boolean;
+  notNull: boolean;
+  note?: string;
+  /** Teste dbt accepted_values (do bloco Dbt { }). */
+  acceptedValues?: string[];
+};
 export type TableView = {
   id: string; // schema.tabela (ou tabela)
   name: string;
@@ -35,6 +43,10 @@ export type TableView = {
   note?: string;
   compositePks?: string[][];
   columns: ColumnView[];
+  // ---- Metadados dbt (do bloco Dbt { }) ----
+  resourceType?: 'model' | 'source' | 'seed' | 'snapshot';
+  materialization?: 'table' | 'view' | 'incremental' | 'ephemeral';
+  tags?: string[];
 };
 export type RefView = {
   id: string;
@@ -119,7 +131,7 @@ export function parseDbml(dbml: string): ParseResult {
   if (!dbml.trim()) {
     return { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] };
   }
-  const { clean, records, layerGroups, lineage, lineageFields, mapCleanLineToOriginal } =
+  const { clean, records, layerGroups, lineage, lineageFields, dbtTables, mapCleanLineToOriginal } =
     extractRecords(dbml);
   let db: any;
   try {
@@ -194,6 +206,19 @@ export function parseDbml(dbml: string): ParseResult {
   }
 
   applyTableGroupMembership(dbml, tables);
+
+  // Anexa metadados dbt (bloco Dbt { }) às tabelas/colunas correspondentes.
+  for (const d of dbtTables) {
+    const t = tables.find((x) => x.id === d.tableName || tableIdMatches(d.tableName, x.id));
+    if (!t) continue;
+    if (d.resourceType) t.resourceType = d.resourceType;
+    if (d.materialization) t.materialization = d.materialization;
+    if (d.tags?.length) t.tags = d.tags;
+    for (const [colName, dc] of Object.entries(d.columns ?? {})) {
+      const col = t.columns.find((c) => c.name === colName);
+      if (col && dc.acceptedValues?.length) col.acceptedValues = dc.acceptedValues;
+    }
+  }
 
   return { tables, refs, records, layerGroups, lineage, lineageFields };
 }
