@@ -1,4 +1,5 @@
 import { BaseEdge, getSmoothStepPath, type EdgeProps } from 'reactflow';
+import { useColumnEdgeCoords } from './useColumnEdgeCoords';
 
 export type FieldLineageEdgeData = {
   highlighted?: boolean;
@@ -17,10 +18,41 @@ export type FieldLineageEdgeData = {
 
 /** Aresta L2 coluna→coluna: tracejada; selecionada fica contínua com glow neon. */
 export function FieldLineageEdge({
-  sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data,
+  source,
+  target,
+  sourceHandleId,
+  targetHandleId,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  selected,
+  data,
 }: EdgeProps<FieldLineageEdgeData>) {
+  const coords = useColumnEdgeCoords(
+    source,
+    target,
+    sourceHandleId,
+    targetHandleId,
+    'fieldLineage',
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  );
+
   const [path] = getSmoothStepPath({
-    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 6,
+    sourceX: coords.sourceX,
+    sourceY: coords.sourceY,
+    targetX: coords.targetX,
+    targetY: coords.targetY,
+    sourcePosition,
+    targetPosition,
+    borderRadius: 6,
   });
   const active = selected || data?.highlighted;
   const dimmed = data?.dimmed && !selected;
@@ -30,7 +62,6 @@ export function FieldLineageEdge({
       {selected && (
         <BaseEdge
           path={path}
-          className="field-lineage-edge__glow"
           style={{
             stroke: '#c084fc',
             strokeWidth: 10,
@@ -42,7 +73,6 @@ export function FieldLineageEdge({
       )}
       <BaseEdge
         path={path}
-        className={selected ? 'field-lineage-edge__core' : undefined}
         style={{
           stroke: selected ? '#f5d0fe' : active ? '#6d28d9' : '#a78bfa',
           strokeWidth: selected ? 3.5 : data?.emphasized ? 3.5 : active ? 2.25 : 1.25,

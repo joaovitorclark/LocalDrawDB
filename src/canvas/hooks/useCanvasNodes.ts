@@ -1,15 +1,20 @@
 // Gestão de nós do canvas (padrão Structura): separa estrutura (parsed) de layout
 // (posições, propriedade do React Flow). Evita o snap-back ao arrastar.
-import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Node } from 'reactflow';
 import type { ColumnView, ParseResult, TableView } from '../../dsl/parse';
-import type { TableMeta, TableNodeData } from '../actions';
+import type { ExternalLinkBadge, TableMeta, TableNodeData } from '../actions';
+import type { ExternalGroupStub } from '../pageFilter';
 import { nodeHeight, nodeWidth } from '../nodeMetrics';
-import { useInteraction } from '../../store/interaction';
-
 export type Positions = Record<string, { x: number; y: number }>;
 
-export type NodeExtra = { headerColor: string; meta: TableMeta };
+export type NodeExtra = {
+  headerColor: string;
+  meta: TableMeta;
+  externalLinks?: ExternalLinkBadge[];
+  /** Colunas com FK/L2 — usado para scroll inicial e alinhar handles. */
+  linkedColumns?: string[];
+};
 export type NodeExtras = Map<string, NodeExtra>;
 
 const FALLBACK_META: TableMeta = {
@@ -56,6 +61,8 @@ function tableDataSig(t: TableView, extra: NodeExtra): string {
     extra.headerColor,
     t.columns.map(colSig).join(SEP3),
     metaSig(extra.meta),
+    (extra.externalLinks ?? []).map((l) => `${l.direction}:${l.stubId}:${l.count}`).join(','),
+    (extra.linkedColumns ?? []).join(','),
   ].join(SEP4);
 }
 
@@ -108,24 +115,14 @@ function groupNodes(
   return out;
 }
 
-function classOf(id: string, related: Set<string> | null): string | undefined {
-  if (!related) return undefined;
-  return related.has(id) ? 'node--related' : 'node--dimmed';
-}
-
 export function useCanvasNodes(
   parsed: ParseResult,
   positions: Positions,
   setNodes: (updater: (prev: Node[]) => Node[]) => void,
-  relatedRef: MutableRefObject<Set<string> | null>,
   opts: NodeOpts,
   nodeExtras: NodeExtras,
+  externalStubs: ExternalGroupStub[] = [],
 ): void {
-  const selectedTableIds = useInteraction((s) => s.selectedTableIds);
-  const selectedSet = useMemo(
-    () => new Set(selectedTableIds),
-    [selectedTableIds],
-  );
   // Cache de `data` por id: preserva a identidade do objeto enquanto a assinatura de
   // conteúdo não muda, permitindo que `React.memo(TableNode)` pule re-renders das
   // tabelas não editadas (ganho decisivo para tabelas/diagramas grandes).
@@ -147,7 +144,16 @@ export function useCanvasNodes(
         seen.add(t.id);
         let entry = cache.get(t.id);
         if (!entry || entry.sig !== sig) {
-          entry = { sig, data: { ...t, headerColor: extra.headerColor, meta: extra.meta } };
+          entry = {
+            sig,
+            data: {
+              ...t,
+              headerColor: extra.headerColor,
+              meta: extra.meta,
+              ...(extra.externalLinks?.length ? { externalLinks: extra.externalLinks } : {}),
+              ...(extra.linkedColumns?.length ? { linkedColumns: extra.linkedColumns } : {}),
+            },
+          };
           cache.set(t.id, entry);
         }
         return {
@@ -156,34 +162,45 @@ export function useCanvasNodes(
           position: posOf(t, i),
           data: entry.data,
           deletable: true,
-          selected: selectedSet.has(t.id),
           hidden: opts.hiddenTables.has(t.id),
           style: opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : undefined,
-          className: classOf(t.id, relatedRef.current),
         };
       });
       for (const key of cache.keys()) if (!seen.has(key)) cache.delete(key);
-      return [...groupNodes(parsed.tables, posOf, opts, false), ...tableNodes];
+      const stubNodes: Node[] = externalStubs.map((stub) => ({
+        id: stub.id,
+        type: 'externalGroup',
+        position: positions[stub.id] ?? { x: 520, y: 80 },
+        data: { label: stub.label, tableCount: stub.tableCount, linkCount: stub.linkCount },
+        draggable: true,
+        selectable: false,
+        zIndex: 1,
+      }));
+      return [...groupNodes(parsed.tables, posOf, opts, false), ...stubNodes, ...tableNodes];
     });
-  }, [parsed.tables, positions, setNodes, relatedRef, opts, selectedSet, nodeExtras]);
+  }, [parsed.tables, positions, setNodes, opts, nodeExtras, externalStubs]);
 }
 
-/** Atualiza apenas o `className` (highlight/dim de hover) sem mexer na posição. */
-export function useHoverHighlight(
+/** Sincroniza `selected` nos nós de tabela sem rebuild estrutural (hover/seleção). */
+export function useCanvasSelectionSync(
   setNodes: (updater: (prev: Node[]) => Node[]) => void,
-  related: Set<string> | null,
+  selectedTableIds: string[],
+  tableIds: string[],
 ): void {
+  const selectedSet = useMemo(() => new Set(selectedTableIds), [selectedTableIds]);
+  const structureKey = useMemo(() => tableIds.join('\u0000'), [tableIds]);
+
   useEffect(() => {
     setNodes((prev) => {
       let changed = false;
       const next = prev.map((n) => {
         if (n.type !== 'table') return n;
-        const className = classOf(n.id, related);
-        if (className === n.className) return n;
+        const selected = selectedSet.has(n.id);
+        if (n.selected === selected) return n;
         changed = true;
-        return { ...n, className };
+        return { ...n, selected };
       });
       return changed ? next : prev;
     });
-  }, [related, setNodes]);
+  }, [selectedSet, structureKey, setNodes]);
 }

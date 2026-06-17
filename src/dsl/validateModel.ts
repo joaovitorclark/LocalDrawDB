@@ -1,4 +1,5 @@
 import { lineOfColumn, lineOfGroupMember, lineOfRef, lineOfTable } from './lineLocate';
+import type { Block } from './blocks';
 import type { ParseResult } from './parse';
 
 export type ModelIssue = {
@@ -10,7 +11,7 @@ export type ModelIssue = {
 };
 
 /** Valida refs, PKs e linhagem após o parse do DBML. */
-export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] {
+export function validateModel(parsed: ParseResult, dbml?: string, blocks?: Block[]): ModelIssue[] {
   if (parsed.error) {
     return [{ severity: 'error', message: parsed.error, line: parsed.errorLine }];
   }
@@ -28,7 +29,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         severity: 'error',
         message: `LayerGroup "${lg.name}": tabela inexistente "${member}"`,
         tableId: member,
-        line: dbml ? lineOfGroupMember(dbml, member) : undefined,
+        line: dbml ? lineOfGroupMember(dbml, member, blocks) : undefined,
       });
     }
   }
@@ -44,7 +45,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         severity: 'warn',
         message: `Tabela sem PK: ${t.id}`,
         tableId: t.id,
-        line: dbml ? lineOfTable(dbml, t.id) : undefined,
+        line: dbml ? lineOfTable(dbml, t.id, blocks) : undefined,
       });
     }
     for (const group of t.compositePks ?? []) {
@@ -54,7 +55,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
             severity: 'error',
             message: `PK composta: coluna "${col}" não existe em ${t.id}`,
             tableId: t.id,
-            line: dbml ? lineOfTable(dbml, t.id) : undefined,
+            line: dbml ? lineOfTable(dbml, t.id, blocks) : undefined,
           });
         }
       }
@@ -73,7 +74,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         severity: 'error',
         message: `Coluna "${r.fromCol}" não existe em ${r.source}`,
         tableId: r.source,
-        line: dbml ? lineOfRef(dbml, r.source, r.fromCol) : undefined,
+        line: dbml ? lineOfRef(dbml, r.source, r.fromCol, blocks) : undefined,
       });
     }
     if (!tableIds.has(r.target)) {
@@ -87,7 +88,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         severity: 'error',
         message: `Coluna "${r.toCol}" não existe em ${r.target}`,
         tableId: r.target,
-        line: dbml ? lineOfRef(dbml, r.target, r.toCol) : undefined,
+        line: dbml ? lineOfRef(dbml, r.target, r.toCol, blocks) : undefined,
       });
     }
   }
@@ -104,7 +105,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         severity: 'error',
         message: `Linhagem campo: coluna "${f.targetColumn}" não existe em ${f.targetTable}`,
         tableId: f.targetTable,
-        line: dbml ? lineOfColumn(dbml, f.targetTable, f.targetColumn) : undefined,
+        line: dbml ? lineOfColumn(dbml, f.targetTable, f.targetColumn, blocks) : undefined,
       });
     }
     if (!tableIds.has(f.sourceTable)) {
@@ -118,7 +119,7 @@ export function validateModel(parsed: ParseResult, dbml?: string): ModelIssue[] 
         severity: 'error',
         message: `Linhagem campo: coluna "${f.sourceColumn}" não existe em ${f.sourceTable}`,
         tableId: f.sourceTable,
-        line: dbml ? lineOfColumn(dbml, f.sourceTable, f.sourceColumn) : undefined,
+        line: dbml ? lineOfColumn(dbml, f.sourceTable, f.sourceColumn, blocks) : undefined,
       });
     }
   }

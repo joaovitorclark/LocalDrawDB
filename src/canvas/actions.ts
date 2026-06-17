@@ -42,9 +42,20 @@ export type CanvasActions = {
  * permite memoizar `TableNode` por identidade de `data`, evitando re-render de todas
  * as tabelas a cada keystroke.
  */
+export type ExternalLinkBadge = {
+  stubId: string;
+  label: string;
+  count: number;
+  direction: 'out' | 'in';
+};
+
 export type TableNodeData = TableView & {
   headerColor: string;
   meta: TableMeta;
+  /** Ligações resumidas para grupos fora da página (chips no topo). */
+  externalLinks?: ExternalLinkBadge[];
+  /** Colunas com aresta FK/L2 (scroll automático no cartão). */
+  linkedColumns?: string[];
 };
 
 export const CanvasActionsCtx = createContext<CanvasActions | null>(null);

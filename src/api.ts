@@ -3,6 +3,14 @@
 export type Project = { dbml: string; canvas: CanvasState };
 export type Layer = { id: string; name: string; color: string };
 export type LineageLink = { source: string; target: string };
+
+export type CanvasPage = {
+  id: string;
+  name: string;
+  /** TableGroup names; ALL_PAGE_ID = todas; UNGROUPED_PAGE_ID = sem grupo. */
+  tableGroups: string[];
+};
+
 export type CanvasState = {
   positions?: Record<string, { x: number; y: number }>;
   colors?: Record<string, string>;
@@ -10,6 +18,11 @@ export type CanvasState = {
   customLayers?: Layer[];
   lineage?: LineageLink[];
   collapsedGroups?: string[];
+  pages?: CanvasPage[];
+  /** Páginas visíveis no canvas (ids de CanvasPage). ALL_PAGE_ID = todas. */
+  activePageIds?: string[];
+  /** @deprecated use activePageIds */
+  activePageId?: string | null;
 };
 
 export type ExportFormat =
