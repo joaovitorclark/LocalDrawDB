@@ -24,9 +24,10 @@ import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import { ExportMenu } from './ExportMenu';
+import { ProjectSwitcher } from './ProjectSwitcher';
 import { exportInputL2Warning } from './exportWarnings';
 import * as api from './api';
-import type { LineageLink } from './api';
+import type { LineageLink, ProjectMeta } from './api';
 
 type Positions = Record<string, { x: number; y: number }>;
 type Colors = Record<string, string>;
@@ -90,6 +91,9 @@ export default function App() {
   const [focusNonce, setFocusNonce] = useState(0);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
+  // Estado multi-projetos (F2)
+  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState('');
   const loadedRef = useRef(false);
   const prevDbmlRef = useRef('');
   const editorRef = useRef<EditorHandle>(null);
@@ -102,11 +106,14 @@ export default function App() {
   const baselineRef = useRef<Snapshot | null>(null);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  // Carrega o projeto persistido (ou exemplo se vazio).
+  // Carrega a lista de projetos e o projeto ativo na montagem (F2).
   useEffect(() => {
     api
-      .loadProject()
-      .then((p) => {
+      .listProjects()
+      .then(async ({ activeId, projects: list }) => {
+        setProjects(list);
+        setCurrentProjectId(activeId);
+        const p = await api.loadProjectById(activeId);
         const dbml0 = p.dbml || SAMPLE;
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
@@ -120,10 +127,28 @@ export default function App() {
         setSaveState('saved');
       })
       .catch(() => {
-        setDbml(SAMPLE);
-        baselineRef.current = { dbml: SAMPLE, positions: {}, colors: {} };
-        setStatus('Backend offline — editando localmente');
-        setSaveState('saved');
+        // Backend offline — fallback para legacy ou exemplo
+        api
+          .loadProject()
+          .then((p) => {
+            const dbml0 = p.dbml || SAMPLE;
+            const pos0 = p.canvas?.positions ?? {};
+            const col0 = p.canvas?.colors ?? {};
+            setDbml(dbml0);
+            prevDbmlRef.current = dbml0;
+            setPositions(pos0);
+            setColors(col0);
+            setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
+            baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
+            setStatus('Pronto');
+            setSaveState('saved');
+          })
+          .catch(() => {
+            setDbml(SAMPLE);
+            baselineRef.current = { dbml: SAMPLE, positions: {}, colors: {} };
+            setStatus('Backend offline — editando localmente');
+            setSaveState('saved');
+          });
       })
       .finally(() => {
         loadedRef.current = true;
@@ -187,11 +212,14 @@ export default function App() {
 
   const handleSave = useCallback(() => {
     setSaveState('saving');
-    api
-      .saveProject(dbml, { positions, colors, collapsedGroups })
+    // Salva pelo ID do projeto ativo quando disponível; cai no endpoint legacy senão.
+    const saveCall = currentProjectId
+      ? api.saveProjectById(currentProjectId, dbml, { positions, colors, collapsedGroups })
+      : api.saveProject(dbml, { positions, colors, collapsedGroups });
+    saveCall
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('error'));
-  }, [dbml, positions, colors, collapsedGroups]);
+  }, [currentProjectId, dbml, positions, colors, collapsedGroups]);
 
   // Auto-save: quando ativo, salva após 1.5s de dirty.
   useEffect(() => {
@@ -691,7 +719,10 @@ export default function App() {
 
   const handleImport = () =>
     run('Importando', async () => {
-      const { dbml: merged, imported, warnings, lineageFieldCount } = await api.importFromInput(dbml);
+      const importCall = currentProjectId
+        ? api.importFromInputForProject(currentProjectId, dbml)
+        : api.importFromInput(dbml);
+      const { dbml: merged, imported, warnings, lineageFieldCount } = await importCall;
       setDbml(merged);
       setImportWarnings(warnings ?? []);
       const warnNote = warnings?.length ? ` — ${warnings.length} aviso(s) no painel Problemas` : '';
@@ -703,6 +734,120 @@ export default function App() {
         ? `Importado: ${imported.join(', ')}${l2Note}${warnNote}`
         : 'Nenhum .sql em data/input/';
     });
+
+  // --- Gerenciamento de projetos (F2) ---
+
+  // Troca de projeto: salva o atual, carrega o novo, limpa histórico.
+  const switchProject = useCallback(
+    async (id: string) => {
+      if (id === currentProjectId) return;
+      // Salva o projeto atual antes de trocar (não perde trabalho)
+      if (currentProjectId) {
+        try {
+          await api.saveProjectById(currentProjectId, dbml, { positions, colors, collapsedGroups });
+        } catch {
+          // ignora erros de save ao trocar — não bloqueia a troca
+        }
+      }
+      // Pausa marcação de dirty durante a troca
+      loadedRef.current = false;
+      try {
+        await api.activateProject(id);
+        const p = await api.loadProjectById(id);
+        const dbml0 = p.dbml || SAMPLE;
+        const pos0 = p.canvas?.positions ?? {};
+        const col0 = p.canvas?.colors ?? {};
+        // Limpa timers pendentes para evitar que commit do histórico anterior dispare
+        clearTimeout(commitTimer.current);
+        clearTimeout(renameTimer.current);
+        // Reseta o histórico — undo/redo não vaza entre projetos
+        setPast([]);
+        setFuture([]);
+        // Carrega o novo estado
+        setDbml(dbml0);
+        prevDbmlRef.current = dbml0;
+        setPositions(pos0);
+        setColors(col0);
+        setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
+        // Baseline do novo projeto — impede que o load marque dirty
+        baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
+        setCurrentProjectId(id);
+        setSaveState('saved');
+        setStatus('Projeto carregado');
+      } catch (e: unknown) {
+        setStatus(`Erro ao trocar projeto: ${(e as Error)?.message ?? e}`);
+      } finally {
+        loadedRef.current = true;
+      }
+    },
+    [currentProjectId, dbml, positions, colors, collapsedGroups],
+  );
+
+  // Atualiza a lista de projetos do servidor
+  const refreshProjects = useCallback(async () => {
+    try {
+      const { projects: list } = await api.listProjects();
+      setProjects(list);
+    } catch {
+      // ignora
+    }
+  }, []);
+
+  const handleCreateProject = useCallback(
+    async (name: string) => {
+      try {
+        await api.createProject(name);
+        const { activeId, projects: list } = await api.listProjects();
+        setProjects(list);
+        // Troca automaticamente para o novo projeto
+        await switchProject(activeId !== currentProjectId ? activeId : list[list.length - 1]?.id ?? activeId);
+      } catch (e: unknown) {
+        setStatus(`Erro ao criar projeto: ${(e as Error)?.message ?? e}`);
+      }
+    },
+    [currentProjectId, switchProject],
+  );
+
+  const handleRenameProject = useCallback(
+    async (id: string, name: string) => {
+      try {
+        await api.renameProject(id, name);
+        await refreshProjects();
+      } catch (e: unknown) {
+        setStatus(`Erro ao renomear projeto: ${(e as Error)?.message ?? e}`);
+      }
+    },
+    [refreshProjects],
+  );
+
+  const handleDuplicateProject = useCallback(
+    async (id: string) => {
+      try {
+        const meta = await api.duplicateProject(id);
+        await refreshProjects();
+        await switchProject(meta.id);
+      } catch (e: unknown) {
+        setStatus(`Erro ao duplicar projeto: ${(e as Error)?.message ?? e}`);
+      }
+    },
+    [refreshProjects, switchProject],
+  );
+
+  const handleDeleteProject = useCallback(
+    async (id: string) => {
+      try {
+        await api.deleteProject(id);
+        const { activeId, projects: list } = await api.listProjects();
+        setProjects(list);
+        if (id === currentProjectId) {
+          await switchProject(activeId);
+        }
+      } catch (e: unknown) {
+        setStatus(`Erro ao excluir projeto: ${(e as Error)?.message ?? e}`);
+      }
+    },
+    [currentProjectId, switchProject],
+  );
 
   const handleExportOption = (opt: api.ExportOption) => {
     run(`Exportando ${opt.label}`, async () => {
@@ -754,6 +899,18 @@ export default function App() {
     <div className="app">
       <header className="toolbar">
         <strong className="brand">LocalDrawDB</strong>
+        {projects.length > 0 && (
+          <ProjectSwitcher
+            projects={projects}
+            currentProjectId={currentProjectId}
+            saveState={saveState}
+            onSwitch={switchProject}
+            onCreate={handleCreateProject}
+            onRename={handleRenameProject}
+            onDuplicate={handleDuplicateProject}
+            onDelete={handleDeleteProject}
+          />
+        )}
         <button onClick={undo} disabled={!past.length} title="Desfazer (Cmd/Ctrl+Z)">
           ↶
         </button>
