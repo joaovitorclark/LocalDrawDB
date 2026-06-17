@@ -1469,7 +1469,7 @@ body {
   overflow-y: scroll;
   overflow-x: hidden;
   scrollbar-width: auto;
-  scrollbar-color: var(--brand-navy, #13284b) #e2e8f0;
+  scrollbar-color: rgba(19, 40, 75, 0.3) #e2e8f0;
   border-top: 1px solid #e2e8f0;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -1480,16 +1480,27 @@ body {
   background: #eef2f7;
 }
 .table-node__cols--scroll::-webkit-scrollbar-thumb {
-  background: var(--brand-navy, #13284b);
+  background: rgba(19, 40, 75, 0.3);
   border-radius: 8px;
   border: 3px solid #eef2f7;
   min-height: 32px;
+  transition: background 0.12s ease;
 }
 .table-node__cols--scroll::-webkit-scrollbar-thumb:hover {
-  background: #1f3a6b;
+  background: rgba(19, 40, 75, 0.55);
 }
 .table-node__cols--scroll::-webkit-scrollbar-thumb:active {
   background: var(--brand-green, #16a34a);
+}
+/* Tabela selecionada: barra de rolagem opaca/destacada */
+.react-flow__node.selected .table-node__cols--scroll {
+  scrollbar-color: var(--brand-navy, #13284b) #e2e8f0;
+}
+.react-flow__node.selected .table-node__cols--scroll::-webkit-scrollbar-thumb {
+  background: var(--brand-navy, #13284b);
+}
+.react-flow__node.selected .table-node__cols--scroll::-webkit-scrollbar-thumb:hover {
+  background: #1f3a6b;
 }
 .table-node__cols--scroll .col-row--scroll {
   height: 25px;
