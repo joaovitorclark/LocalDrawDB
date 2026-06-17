@@ -4,7 +4,7 @@ import { Parser } from '@dbml/core';
 import { quoteDbmlNote } from '../src/dsl/dbmlNotes.ts';
 import { extractRecords } from './dbmlClean.ts';
 import { parseTypeName, qualifiedName } from './model.ts';
-import type { Column, FieldLineageEntry, LineageEntry, Model, Ref, Table } from './model.ts';
+import type { Column, ColumnTest, FieldLineageEntry, LineageEntry, Model, Ref, Table } from './model.ts';
 
 const REL_TO_KIND: Record<string, '>' | '<' | '-' | '<>'> = {
   '*': '>', // muitos -> um (lado "from")
@@ -35,9 +35,9 @@ function tableIdMatches(a: string, b: string): boolean {
   return lastX === lastY && (x.endsWith('.' + lastY) || y.endsWith('.' + lastX));
 }
 
-/** Faz parse de uma string DBML para o modelo canônico (inclui LayerGroup, Records, PK composta). */
+/** Faz parse de uma string DBML para o modelo canônico (inclui LayerGroup, Records, PK composta, Dbt). */
 export function dbmlToModel(dbml: string): Model {
-  const { clean, records, layerGroups, lineage, lineageFields } = extractRecords(dbml);
+  const { clean, records, layerGroups, lineage, lineageFields, dbtTables } = extractRecords(dbml);
   const db = Parser.parse(clean, 'dbml');
   const tables: Table[] = [];
   const refs: Ref[] = [];
@@ -55,6 +55,7 @@ export function dbmlToModel(dbml: string): Model {
           args,
           pk: !!f.pk,
           nullable: f.not_null ? false : true,
+          unique: !!f.unique || undefined,
           note: f.note || undefined,
         };
       });
@@ -122,6 +123,29 @@ export function dbmlToModel(dbml: string): Model {
     }
   }
 
+  // Aplica metadados dbt (bloco Dbt { }) às tabelas correspondentes
+  for (const dbt of dbtTables) {
+    const t = tables.find((x) => tableIdMatches(qualifiedName(x), dbt.tableName));
+    if (!t) continue;
+    if (dbt.resourceType) t.resourceType = dbt.resourceType;
+    if (dbt.materialization) t.materialization = dbt.materialization;
+    if (dbt.tags?.length) t.tags = [...dbt.tags];
+    if (dbt.meta && Object.keys(dbt.meta).length) t.dbtMeta = { ...dbt.meta };
+
+    // Testes accepted_values por coluna (unique/not_null são derivados do DBML nativo)
+    if (dbt.columns) {
+      for (const [colName, colDbt] of Object.entries(dbt.columns)) {
+        const col = t.columns.find((c) => c.name === colName);
+        if (!col) continue;
+        const tests: ColumnTest[] = col.tests ? [...col.tests] : [];
+        if (colDbt.acceptedValues?.length) {
+          tests.push({ kind: 'accepted_values', values: colDbt.acceptedValues });
+        }
+        if (tests.length) col.tests = tests;
+      }
+    }
+  }
+
   const modelLineage: LineageEntry[] | undefined = lineage.length
     ? lineage.map((l) => ({ target: l.target, sources: [...l.sources] }))
     : undefined;
@@ -153,8 +177,11 @@ export function modelToDbml(model: Model): string {
     for (const c of t.columns) {
       const type = c.args ? `${c.type}(${c.args})` : c.type;
       const settings: string[] = [];
-      if (c.pk && !compositeOnly.has(c.name)) settings.push('pk');
-      if (c.nullable === false) settings.push('not null');
+      const isPk = c.pk && !compositeOnly.has(c.name);
+      if (isPk) settings.push('pk');
+      // PK já implica not null — omite o setting explícito para não duplicar
+      if (c.nullable === false && !isPk) settings.push('not null');
+      if (c.unique) settings.push('unique');
       if (c.note) settings.push(`note: ${quoteNote(c.note)}`);
       const suffix = settings.length ? ` [${settings.join(', ')}]` : '';
       out.push(`  ${c.name} ${type}${suffix}`);
@@ -237,6 +264,61 @@ export function modelToDbml(model: Model): string {
     for (const row of t.records?.rows ?? []) {
       out.push(`  ${row.map((v) => (/[,']/.test(v) ? `'${v}'` : v)).join(', ')}`);
     }
+    out.push('}');
+  }
+
+  // Bloco Dbt { } — emitido apenas quando há metadados dbt em alguma tabela.
+  // Colunas PK omitem unique/not_null (já implícitos); accepted_values vão aqui.
+  // unique/not_null são derivados do DBML nativo; relationships são derivados de Refs.
+  const dbtLines: string[] = [];
+  for (const t of model.tables) {
+    const qn = qualifiedName(t);
+    const tableLines: string[] = [];
+
+    if (t.resourceType) tableLines.push(`    resource_type: ${t.resourceType}`);
+    if (t.materialization) tableLines.push(`    materialization: ${t.materialization}`);
+    if (t.tags?.length) {
+      const tagList = t.tags.map((tag) => `'${tag}'`).join(', ');
+      tableLines.push(`    tags: [${tagList}]`);
+    }
+    if (t.dbtMeta && Object.keys(t.dbtMeta).length) {
+      tableLines.push('    meta {');
+      for (const [key, val] of Object.entries(t.dbtMeta)) {
+        const serialized = typeof val === 'string' ? `'${val}'` : String(val);
+        tableLines.push(`      ${key}: ${serialized}`);
+      }
+      tableLines.push('    }');
+    }
+
+    // Testes accepted_values por coluna (unique/not_null derivados nativamente)
+    const colLines: string[] = [];
+    for (const c of t.columns) {
+      const avTests = (c.tests ?? []).filter((test) => test.kind === 'accepted_values') as
+        Array<{ kind: 'accepted_values'; values: string[] }>;
+      if (avTests.length) {
+        const valList = avTests[0].values.map((v) => `'${v}'`).join(', ');
+        colLines.push(`      ${c.name} {`);
+        colLines.push(`        accepted_values: [${valList}]`);
+        colLines.push('      }');
+      }
+    }
+    if (colLines.length) {
+      tableLines.push('    columns {');
+      tableLines.push(...colLines);
+      tableLines.push('    }');
+    }
+
+    if (tableLines.length) {
+      dbtLines.push(`  table ${qn} {`);
+      dbtLines.push(...tableLines);
+      dbtLines.push('  }');
+    }
+  }
+
+  if (dbtLines.length) {
+    out.push('');
+    out.push('Dbt {');
+    out.push(...dbtLines);
     out.push('}');
   }
 

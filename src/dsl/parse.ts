@@ -119,6 +119,7 @@ export function parseDbml(dbml: string): ParseResult {
   if (!dbml.trim()) {
     return { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] };
   }
+  // dbtTables não é usado pelo front-end em F0, mas deve ser extraído para não chegar ao @dbml/core
   const { clean, records, layerGroups, lineage, lineageFields, mapCleanLineToOriginal } =
     extractRecords(dbml);
   let db: any;

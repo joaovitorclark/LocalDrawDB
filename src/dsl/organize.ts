@@ -11,6 +11,7 @@ const ORDER: BlockType[] = [
   'layerGroup',
   'ref',
   'lineage',
+  'dbt',
   'records',
 ];
 

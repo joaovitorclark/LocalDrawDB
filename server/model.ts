@@ -1,12 +1,23 @@
 // Modelo canônico — fonte de verdade intermediária entre DBML, SQL e geradores de DDL.
 
+// ---- Tipos de teste dbt (discriminated union) ----
+
+export type ColumnTest =
+  | { kind: 'unique' }
+  | { kind: 'not_null' }
+  | { kind: 'accepted_values'; values: string[] }
+  | { kind: 'relationships'; to: string; field: string };
+
 export type Column = {
   name: string;
   type: string; // tipo base lakehouse, minúsculo: string, decimal, timestamp, int, ...
   args?: string; // parâmetros do tipo, ex.: "15" ou "18,2" (decimal(p,s))
   pk?: boolean;
   nullable?: boolean; // default true
+  unique?: boolean;   // coluna tem constraint UNIQUE (nativa DBML [unique])
   note?: string;
+  /** Testes dbt para a coluna (accepted_values; unique/not_null são derivados). */
+  tests?: ColumnTest[];
 };
 
 export type Table = {
@@ -20,6 +31,13 @@ export type Table = {
   layer?: string; // LayerGroup (import metadata)
   records?: { columns: string[]; rows: string[][] }; // sample data from INSERTs
   compositePks?: string[][]; // PK composta, ex.: [['period','region']]
+  // ---- Metadados dbt (F0) — todos opcionais ----
+  /** Tipo de recurso dbt. Padrão implícito = 'model' (não serializado quando ausente). */
+  resourceType?: 'model' | 'source' | 'seed' | 'snapshot';
+  materialization?: 'table' | 'view' | 'incremental' | 'ephemeral';
+  tags?: string[];
+  /** Passthrough livre de metadados dbt (preservado no round-trip). */
+  dbtMeta?: Record<string, unknown>;
 };
 
 export type Ref = {
