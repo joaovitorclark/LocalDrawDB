@@ -8,7 +8,7 @@ type Props = {
   onSwitch: (id: string) => void;
   onCreate: (name: string) => void;
   onRename: (id: string, name: string) => void;
-  onDuplicate: (id: string) => void;
+  onDuplicate: (id: string, name?: string) => void;
   onDelete: (id: string) => void;
 };
 
@@ -61,7 +61,7 @@ export function ProjectSwitcher({
     const name = window.prompt('Nome do projeto duplicado:', `${proj.name} (cópia)`);
     if (name === null) return; // cancelado
     setOpen(false);
-    onDuplicate(proj.id);
+    onDuplicate(proj.id, name.trim() || undefined);
   };
 
   const handleDelete = (proj: ProjectMeta) => {

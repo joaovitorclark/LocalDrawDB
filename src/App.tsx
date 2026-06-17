@@ -772,7 +772,9 @@ export default function App() {
         // Baseline do novo projeto — impede que o load marque dirty
         baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
         setCurrentProjectId(id);
-        setSaveState('saved');
+        // 'idle' (não 'saved'): o efeito de dirty roda após o render do switch,
+        // quando loadedRef já voltou a true; o guard s==='idle' o mantém limpo.
+        setSaveState('idle');
         setStatus('Projeto carregado');
       } catch (e: unknown) {
         setStatus(`Erro ao trocar projeto: ${(e as Error)?.message ?? e}`);
@@ -821,9 +823,9 @@ export default function App() {
   );
 
   const handleDuplicateProject = useCallback(
-    async (id: string) => {
+    async (id: string, name?: string) => {
       try {
-        const meta = await api.duplicateProject(id);
+        const meta = await api.duplicateProject(id, name);
         await refreshProjects();
         await switchProject(meta.id);
       } catch (e: unknown) {
