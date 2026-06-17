@@ -3,9 +3,10 @@ import { dbmlToModel, modelToDbml } from './dbmlIo.ts';
 import { mergeModel, sqlToModel } from './sqlImport.ts';
 import {
   DATA_DIR,
-  INPUT_DIR,
   ROOT,
+  getActiveInputDir,
   loadProject,
+  migrateLegacy,
   readInputSql,
   saveProject,
   writeOutput,
@@ -29,10 +30,13 @@ function parseOr400(dbml: string, reply: FastifyReply): Model | null {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  // Garante estrutura multi-projeto antes de qualquer rota ser chamada.
+  await migrateLegacy();
+
   app.get('/api/meta', async () => ({
     root: ROOT,
     dataDir: DATA_DIR,
-    inputDir: INPUT_DIR,
+    inputDir: await getActiveInputDir(),
     port: Number(process.env.PORT ?? 5174),
   }));
 
