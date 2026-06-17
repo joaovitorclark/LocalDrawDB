@@ -19,6 +19,9 @@ npm-debug.log*
 *.erwin
 *.xlsx
 
+# Cache local de plugins do Claude Code (nunca versionar)
+.claude/
+
 # Sistema
 .DS_Store
 .env

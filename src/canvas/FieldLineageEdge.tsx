@@ -30,7 +30,6 @@ export function FieldLineageEdge({
       {selected && (
         <BaseEdge
           path={path}
-          className="field-lineage-edge__glow"
           style={{
             stroke: '#c084fc',
             strokeWidth: 10,
@@ -42,7 +41,6 @@ export function FieldLineageEdge({
       )}
       <BaseEdge
         path={path}
-        className={selected ? 'field-lineage-edge__core' : undefined}
         style={{
           stroke: selected ? '#f5d0fe' : active ? '#6d28d9' : '#a78bfa',
           strokeWidth: selected ? 3.5 : data?.emphasized ? 3.5 : active ? 2.25 : 1.25,
