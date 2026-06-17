@@ -47,6 +47,9 @@ function metaSig(m: TableMeta): string {
     m.sample ? `${m.sample.columns.length}x${m.sample.rows.length}` : '0',
     m.columnNotes.map((n) => `${n.column}=${n.note}`).join(','),
     m.note ?? '',
+    m.resourceType ?? '',
+    m.materialization ?? '',
+    (m.tags ?? []).join(','),
   ].join(SEP2);
 }
 

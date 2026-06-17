@@ -12,6 +12,10 @@ export type TableMeta = {
   refsIn: string[]; // referenciada por
   note?: string;
   columnNotes: { column: string; note: string }[];
+  // ---- Metadados dbt ----
+  resourceType?: 'model' | 'source' | 'seed' | 'snapshot';
+  materialization?: 'table' | 'view' | 'incremental' | 'ephemeral';
+  tags?: string[];
   has: boolean; // tem algum metadado?
 };
 

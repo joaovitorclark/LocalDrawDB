@@ -742,6 +742,7 @@ export default function App() {
       const columnNotes = t.columns
         .filter((c) => c.note)
         .map((c) => ({ column: c.name, note: c.note as string }));
+      const dbtHas = !!(t.resourceType || t.materialization || t.tags?.length);
       const has = !!(
         sources.length ||
         sample ||
@@ -749,9 +750,14 @@ export default function App() {
         fks.length ||
         refsIn.length ||
         t.note ||
-        columnNotes.length
+        columnNotes.length ||
+        dbtHas
       );
-      const meta: TableMeta = { sources, sample, pks, fks, refsIn, note: t.note, columnNotes, has };
+      const meta: TableMeta = {
+        sources, sample, pks, fks, refsIn, note: t.note, columnNotes,
+        resourceType: t.resourceType, materialization: t.materialization, tags: t.tags,
+        has,
+      };
       const headerColor = colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
       const externalLinks = externalLinksByTable.get(t.id);
       const linked = linkedByTable.get(t.id);
@@ -817,8 +823,13 @@ export default function App() {
         const columnNotes = t
           ? t.columns.filter((c) => c.note).map((c) => ({ column: c.name, note: c.note as string }))
           : [];
-        const has = !!(sources.length || sample || pks.length || fks.length || refsIn.length || t?.note || columnNotes.length);
-        return { sources, sample, pks, fks, refsIn, note: t?.note, columnNotes, has };
+        const dbtHas = !!(t?.resourceType || t?.materialization || t?.tags?.length);
+        const has = !!(sources.length || sample || pks.length || fks.length || refsIn.length || t?.note || columnNotes.length || dbtHas);
+        return {
+          sources, sample, pks, fks, refsIn, note: t?.note, columnNotes,
+          resourceType: t?.resourceType, materialization: t?.materialization, tags: t?.tags,
+          has,
+        };
       },
     }),
     [selectColumn, layerOf, layersArr, goToColumn, migrateTableId, handleRemoveTable],

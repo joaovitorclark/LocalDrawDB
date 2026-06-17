@@ -11,13 +11,13 @@
 | **F0 — Modelo + round-trip DBML** | ✅ feito | `04d4f33` |
 | **F1 — Presets de camadas** | ✅ feito | `997ae7f` |
 | **F2 — Export dbt fiel** | ✅ feito | `360ef9e` |
-| **F3 — Import dbt (3 formatos)** | ✅ feito | (este commit) |
-| **F4 — UI (tests/materialization/source)** | ⬜ a fazer | — |
+| **F3 — Import dbt (3 formatos)** | ✅ feito | `367d078` |
+| **F4 — UI (tests/materialization/source)** | ✅ feito | (este commit) |
 | **F5 — dbt executável** | ⏸ futuro (fora de escopo agora) | — |
 
 > Branch rebaseada na `main` após merge do PR #14 (multi-projeto).
 
-Suíte: **294 testes verdes**, typecheck limpo. Restrições inegociáveis: round-trip preserva
+Suíte: **298 testes verdes**, typecheck limpo. Restrições inegociáveis: round-trip preserva
 semântica, DBML/SQL legado intacto, fixtures dbt **genéricas** (sem dados proprietários).
 
 ## O que F0 entregou (fundação — já no modelo)
@@ -81,13 +81,23 @@ Três formatos via `dbtFilesToModel(files)` (dispatcher; prefere manifest):
   `server/__tests__/dbtImportRoute.test.ts` (integração da rota).
 
 ### F4 — UI (`src/canvas/ColumnPanel.tsx`, `TableInfoPopover.tsx`, `LayersPanel.tsx`)
-- ColumnPanel: ver/editar tests por coluna (unique/not_null já via pk/nullable; accepted_values;
-  relationships via Ref existente).
-- TableInfoPopover: `resourceType`/`materialization`/`tags` (badges/edição).
-- LayersPanel: ação "inserir preset" de nomenclatura (usa `LAYER_PRESETS`).
-- Integrar lineage `ref()/source()` ao que já existe (`lineage`, `lineageFields`, painéis).
-- Verificar no navegador (Playwright + Chrome do sistema, ver memória `headless-verify-system-chrome`):
-  importar um projeto dbt de exemplo, ver tabelas/tests/lineage; exportar e reimportar.
+### ~~F4 — UI~~ ✅ FEITO
+Plumbing: `parseDbml` agora anexa metadados do bloco `Dbt { }` às `TableView`
+(`resourceType`/`materialization`/`tags`) e `ColumnView` (`acceptedValues`). Ambos os
+builders de `TableMeta` no App e a assinatura `metaSig` (useCanvasNodes) incluem os campos.
+- **TableInfoPopover:** seção "dbt" com badges de `resource_type`/`materialization`/`tags`.
+- **ColumnPanel:** seção read-only "Tests dbt" (unique/not_null de pk/notNull; accepted_values
+  do import; relationships do FK). Edição de unique/not_null/relationships já existia via
+  pk/notNull/FK; edição inline de `accepted_values` (escrever no bloco `Dbt`) fica de fora.
+- **LayersPanel:** seletor "inserir preset" — adiciona as camadas do preset via `onAddLayer`
+  (idempotente). Usa `LAYER_PRESETS`.
+- **Lineage `ref()/source()`:** o import F3 produz entradas `lineage` L1, já renderizadas
+  pelos painéis/arestas existentes (nada novo a integrar).
+- **Verificado no navegador** (`scripts/verify-dbt-f4.mjs`, Chrome do sistema): badges dbt,
+  accepted_values na coluna e os 5 presets aparecem; zero erros de console.
+
+**A FAZER (follow-up, fora do F4):** edição inline de `accepted_values` na UI (serializar no
+bloco `Dbt` via novo helper em `src/dsl/edit.ts`).
 
 ## Workflow usado (continuar igual)
 Subagent-driven: 1 implementador (sonnet) por fase com TDD, coordenador revisa o diff,

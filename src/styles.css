@@ -1103,6 +1103,18 @@ body {
   cursor: pointer;
   color: var(--brand-navy);
 }
+.layers-panel__preset {
+  margin-top: 4px;
+  margin-left: 4px;
+  font: inherit;
+  font-size: 11px;
+  background: #f3f6fa;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 3px 6px;
+  cursor: pointer;
+  color: var(--brand-navy);
+}
 
 /* v4 — ícone ⓘ de metadados + popover */
 .table-node__info {
@@ -1146,6 +1158,28 @@ body {
   border: 1px solid #e2e8f0;
   padding: 1px 5px;
 }
+
+/* dbt — badges de resourceType / materialization / tags */
+.dbt-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.dbt-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  border: 1px solid transparent;
+}
+.dbt-rt-source { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.dbt-rt-model { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.dbt-rt-seed { background: #dcfce7; color: #166534; border-color: #86efac; }
+.dbt-rt-snapshot { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.dbt-mat { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+.dbt-tag { background: #fff; color: #64748b; border-color: #e2e8f0; }
 
 /* v4 — label da aresta de linhagem */
 .lineage-label {
@@ -1265,6 +1299,25 @@ body {
   border: 1px solid #d0d7e2;
   border-radius: 4px;
   padding: 4px 6px;
+}
+.column-panel__tests {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+.column-panel__tests-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-navy);
+}
+.column-panel__tests ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.column-panel__tests li {
+  font-size: 11px;
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Botão primário (verde Unimed) */
