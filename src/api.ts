@@ -25,6 +25,14 @@ export type CanvasState = {
   activePageId?: string | null;
 };
 
+export type ProjectMeta = {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ExportFormat =
   | 'localdrawdb'
   | 'spark-ddl'
@@ -73,6 +81,74 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function get<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    let detail = `${url} -> ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) detail += `: ${j.error}`;
+    } catch {
+      /* corpo não-JSON */
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function put<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = `${url} -> ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) detail += `: ${j.error}`;
+    } catch {
+      /* corpo não-JSON */
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function patch<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = `${url} -> ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) detail += `: ${j.error}`;
+    } catch {
+      /* corpo não-JSON */
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function del<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: 'DELETE' });
+  if (!res.ok) {
+    let detail = `${url} -> ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) detail += `: ${j.error}`;
+    } catch {
+      /* corpo não-JSON */
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function loadProject(): Promise<Project> {
   const res = await fetch('/api/project');
   const j = (await res.json()) as { dbml: string; canvas: CanvasState };
@@ -87,6 +163,40 @@ export async function saveProject(dbml: string, canvas: CanvasState): Promise<vo
   });
   if (!res.ok) throw new Error(`save -> ${res.status}`);
 }
+
+// --- API multi-projetos (F2) ---
+
+export const listProjects = (): Promise<{ activeId: string; projects: ProjectMeta[] }> =>
+  get('/api/projects');
+
+export const createProject = (name: string): Promise<ProjectMeta> =>
+  post('/api/projects', { name });
+
+export const renameProject = (id: string, name: string): Promise<void> =>
+  patch<{ ok: boolean }>(`/api/projects/${id}`, { name }).then(() => {});
+
+export const deleteProject = (id: string): Promise<void> =>
+  del<{ ok: boolean }>(`/api/projects/${id}`).then(() => {});
+
+export const duplicateProject = (id: string, name?: string): Promise<ProjectMeta> =>
+  post(`/api/projects/${id}/duplicate`, { name });
+
+export const activateProject = (id: string): Promise<void> =>
+  post<{ ok: boolean; activeId: string }>(`/api/projects/${id}/activate`, {}).then(() => {});
+
+export async function loadProjectById(id: string): Promise<Project> {
+  const j = await get<{ dbml: string; canvas: CanvasState }>(`/api/projects/${id}`);
+  return { dbml: j.dbml ?? '', canvas: j.canvas ?? {} };
+}
+
+export const saveProjectById = (id: string, dbml: string, canvas: CanvasState): Promise<void> =>
+  put<{ ok: boolean }>(`/api/projects/${id}`, { dbml, canvas }).then(() => {});
+
+export const importFromInputForProject = (id: string, dbml: string) =>
+  post<{ dbml: string; imported: string[]; lineageFieldCount?: number; warnings?: string[] }>(
+    `/api/projects/${id}/import`,
+    { dbml },
+  );
 
 export const importFromInput = (dbml: string) =>
   post<{ dbml: string; imported: string[]; lineageFieldCount?: number; warnings?: string[] }>(

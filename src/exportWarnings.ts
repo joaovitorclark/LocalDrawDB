@@ -10,7 +10,7 @@ export function countSilverColumnsWithoutL2(
   );
   let count = 0;
   for (const t of tables) {
-    const isSilver = t.layer === 'silver' || t.id.startsWith('silver.');
+    const isSilver = t.id.startsWith('silver.');
     if (!isSilver) continue;
     for (const c of t.columns) {
       if (!mapped.has(`${t.id}.${c.name}`.toLowerCase())) count++;

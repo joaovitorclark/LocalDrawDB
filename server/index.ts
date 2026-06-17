@@ -4,13 +4,16 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { registerRoutes } from './routes.ts';
-import { ROOT } from './files.ts';
+import { ROOT, migrateLegacy } from './files.ts';
 
 const APP_ROOT = ROOT;
 const PORT = Number(process.env.PORT ?? 5174);
 const isProd = process.env.NODE_ENV === 'production';
 
 async function main() {
+  // Migração única: cria estrutura multi-projeto a partir de instalação legada.
+  await migrateLegacy();
+
   const app = Fastify({ logger: true, bodyLimit: 20 * 1024 * 1024 });
 
   await registerRoutes(app);
