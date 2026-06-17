@@ -12,6 +12,7 @@ import {
 } from './dbmlClean';
 import type { ParsedRecords } from './records';
 import { resolveParseErrorLine } from './lineLocate';
+import { splitDbmlBlocks } from './blocks';
 
 export {
   extractRecords,
@@ -81,6 +82,37 @@ function buildParseError(
   const line1 = line0 != null ? line0 + 1 : undefined;
   const message = line1 ? `Linha ${line1}: ${rawMessage}` : rawMessage;
   return { message, line: line0 };
+}
+
+const stripQuotes = (s: string) => s.replace(/["`]/g, '').trim();
+
+function tableIdMatches(member: string, tableId: string): boolean {
+  const a = stripQuotes(member).toLowerCase();
+  const b = stripQuotes(tableId).toLowerCase();
+  if (a === b) return true;
+  return a.split('.').pop() === b.split('.').pop();
+}
+
+/** TableGroup no DBML → campo group das tabelas (páginas do canvas). */
+function applyTableGroupMembership(dbml: string, tables: TableView[]): void {
+  for (const b of splitDbmlBlocks(dbml)) {
+    if (b.type !== 'tableGroup' || !b.name) continue;
+    const groupName = stripQuotes(b.name);
+    const h = /TableGroup\s+("?[^"\s{]+"?)\s*\{/i.exec(b.text);
+    if (!h) continue;
+    const body = b.text.slice(h.index + h[0].length);
+    const end = body.lastIndexOf('}');
+    const inner = end >= 0 ? body.slice(0, end) : body;
+    for (const rawLine of inner.split('\n')) {
+      const trimmed = rawLine.trim();
+      if (!trimmed || trimmed.startsWith('//')) continue;
+      const member = stripQuotes(trimmed.replace(/,$/, ''));
+      if (!member) continue;
+      for (const t of tables) {
+        if (tableIdMatches(member, t.id)) t.group = groupName;
+      }
+    }
+  }
 }
 
 export function parseDbml(dbml: string): ParseResult {
@@ -160,6 +192,8 @@ export function parseDbml(dbml: string): ParseResult {
     const t = tables.find((x) => x.id === rec.table || x.name === rec.table);
     if (t && !t.note) t.note = rec.note;
   }
+
+  applyTableGroupMembership(dbml, tables);
 
   return { tables, refs, records, layerGroups, lineage, lineageFields };
 }

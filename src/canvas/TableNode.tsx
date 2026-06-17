@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import { Handle, Position } from 'reactflow';
 import { useInteraction } from '../store/interaction';
 import { useCanvasActions, TABLE_COLORS, type TableNodeData } from './actions';
+import { externalSourceHandle, externalTargetHandle } from './pageFilter';
 import { LineagePorts } from './LineagePorts';
 import { TableInfoPopover } from './TableInfoPopover';
+import { TableColumnList } from './TableColumnList';
 
 // Nó de tabela: colunas + FK por handle, ou cartão compacto + portas de linhagem (draw.io).
 // Memoizado: `data` (incl. cor/meta pré-computadas) só muda quando o conteúdo da própria
@@ -117,65 +119,63 @@ function TableNodeImpl({ data }: { data: TableNodeData }) {
           )}
         </div>
 
-        <div className="table-node__cols">
-              {data.columns.map((c) => {
-                const isSel = selectedColumn === c.name;
-                return (
-                  <div
-                    key={c.name}
-                    className={`col-row ${c.pk ? 'is-pk' : ''} ${isSel ? 'is-selected' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (e.altKey && actions.onGoToColumn) {
-                        actions.onGoToColumn(data.id, c.name);
-                        return;
-                      }
-                      actions.onSelectColumn(data.id, c.name);
-                    }}
-                  >
-                    <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
-                    {fieldLineageVisible && (
-                      <Handle
-                        type="target"
-                        position={Position.Left}
-                        id={`fl:t:${c.name}`}
-                        className="col-handle col-handle--field-lin nodrag nopan"
-                      />
-                    )}
-                    {editing === c.name ? (
-                      <input
-                        className="col-edit"
-                        autoFocus
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onBlur={() => commitEdit(c.name)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitEdit(c.name);
-                          if (e.key === 'Escape') setEditing(null);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="col-name" onDoubleClick={(e) => { e.stopPropagation(); setEditing(c.name); setDraft(c.name); }}>
-                        {c.pk ? '🔑 ' : ''}
-                        {c.name}
-                        {c.notNull ? <span className="col-nn">NN</span> : null}
-                      </span>
-                    )}
-                    <span className="col-type">{c.type}</span>
-                    <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" />
-                    {fieldLineageVisible && (
-                      <Handle
-                        type="source"
-                        position={Position.Right}
-                        id={`fl:s:${c.name}`}
-                        className="col-handle col-handle--field-lin nodrag nopan"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+        {data.externalLinks?.length ? (
+          <div className="table-node__external-bar">
+            {data.externalLinks.map((link) => (
+              <span
+                key={`${link.direction}:${link.stubId}`}
+                className="table-node__external-chip"
+                title={
+                  link.direction === 'out'
+                    ? `${link.count} ligação(ões) → ${link.label} (fora da página)`
+                    : `${link.count} ligação(ões) ← ${link.label} (fora da página)`
+                }
+              >
+                {link.direction === 'out' ? (
+                  <Handle
+                    type="source"
+                    position={Position.Top}
+                    id={externalSourceHandle(link.stubId)}
+                    className="external-link-handle nodrag nopan"
+                  />
+                ) : (
+                  <Handle
+                    type="target"
+                    position={Position.Top}
+                    id={externalTargetHandle(link.stubId)}
+                    className="external-link-handle nodrag nopan"
+                  />
+                )}
+                <span className="table-node__external-chip-text">
+                  {link.direction === 'out' ? '→' : '←'} {link.label}
+                  <span className="table-node__external-chip-count">{link.count}</span>
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <TableColumnList
+          columns={data.columns}
+          selectedColumn={selectedColumn}
+          fieldLineageVisible={fieldLineageVisible}
+          editing={editing}
+          draft={draft}
+          onSelect={(column, altKey) => {
+            if (altKey && actions.onGoToColumn) {
+              actions.onGoToColumn(data.id, column);
+              return;
+            }
+            actions.onSelectColumn(data.id, column);
+          }}
+          onStartEdit={(column) => {
+            setEditing(column);
+            setDraft(column);
+          }}
+          onDraftChange={setDraft}
+          onCommitEdit={commitEdit}
+          onCancelEdit={() => setEditing(null)}
+        />
         <button
           className="col-add"
           onClick={(e) => {

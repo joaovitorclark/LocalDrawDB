@@ -1,4 +1,4 @@
-import { splitDbmlBlocks } from './blocks';
+import { splitDbmlBlocks, type Block } from './blocks';
 import type { CleanLineMap } from './dbmlClean';
 
 const stripQuotes = (s: string) => s.replace(/["`]/g, '').trim();
@@ -27,8 +27,8 @@ const isFieldLine = (line: string) => {
 };
 
 /** Linha 0-based no buffer do editor. */
-export function lineOfTable(dbml: string, tableId: string): number | undefined {
-  for (const b of splitDbmlBlocks(dbml)) {
+export function lineOfTable(dbml: string, tableId: string, blocks?: Block[]): number | undefined {
+  for (const b of blocks ?? splitDbmlBlocks(dbml)) {
     if (b.type === 'table' && tableMatches(b.name, tableId)) return b.lineStart;
   }
   return undefined;
@@ -58,8 +58,13 @@ export function resolveTableId(blockName: string, tableIds: string[]): string | 
   return null;
 }
 
-export function lineOfColumn(dbml: string, tableId: string, column: string): number | undefined {
-  for (const b of splitDbmlBlocks(dbml)) {
+export function lineOfColumn(
+  dbml: string,
+  tableId: string,
+  column: string,
+  blocks?: Block[],
+): number | undefined {
+  for (const b of blocks ?? splitDbmlBlocks(dbml)) {
     if (b.type !== 'table' || !tableMatches(b.name, tableId)) continue;
     const start = b.lineStart ?? 0;
     const lines = b.text.split('\n');
@@ -72,17 +77,17 @@ export function lineOfColumn(dbml: string, tableId: string, column: string): num
   return undefined;
 }
 
-export function lineOfRef(dbml: string, source: string, fromCol?: string): number | undefined {
+export function lineOfRef(dbml: string, source: string, fromCol?: string, blocks?: Block[]): number | undefined {
   const needle = fromCol ? `${stripQuotes(source)}.${fromCol}` : stripQuotes(source);
-  for (const b of splitDbmlBlocks(dbml)) {
+  for (const b of blocks ?? splitDbmlBlocks(dbml)) {
     if (b.type === 'ref' && b.text.replace(/["`]/g, '').includes(needle)) return b.lineStart;
   }
-  return lineOfTable(dbml, source);
+  return lineOfTable(dbml, source, blocks);
 }
 
 /** Linha do membro em LayerGroup ou TableGroup (referência schema.tabela). */
-export function lineOfGroupMember(dbml: string, tableId: string): number | undefined {
-  for (const b of splitDbmlBlocks(dbml)) {
+export function lineOfGroupMember(dbml: string, tableId: string, blocks?: Block[]): number | undefined {
+  for (const b of blocks ?? splitDbmlBlocks(dbml)) {
     if (b.type !== 'layerGroup' && b.type !== 'tableGroup') continue;
     const start = b.lineStart ?? 0;
     const lines = b.text.split('\n');

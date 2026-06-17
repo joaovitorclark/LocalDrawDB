@@ -1,10 +1,15 @@
 import type { TableView } from '../dsl/parse';
+import {
+  COLUMN_VIRTUALIZE_THRESHOLD,
+  COLUMN_VIRTUAL_ROW_H,
+  COLUMN_VIRTUAL_VIEW_ROWS,
+} from './scaleLimits';
 
 const BASE_W = 230;
 const MAX_W = 320;
 const COMPACT_INNER_MIN = 168;
 const HEADER_H = 34;
-const ROW_H = 25;
+const ROW_H = COLUMN_VIRTUAL_ROW_H;
 const FOOTER_H = 26;
 /** Padding do shell em modo linhagem (.table-node-shell--lineage). */
 const LINEAGE_SHELL_PAD = 10;
@@ -47,7 +52,11 @@ export function nodeWidth(t: TableView, opts: NodeMetricsOpts = {}): number {
 /** Altura estimada do cartão. */
 export function nodeHeight(t: TableView, opts: NodeMetricsOpts = {}): number {
   if (!opts.compact) {
-    let h = HEADER_H + t.columns.length * ROW_H + FOOTER_H;
+    const colRows =
+      t.columns.length > COLUMN_VIRTUALIZE_THRESHOLD
+        ? COLUMN_VIRTUAL_VIEW_ROWS
+        : t.columns.length;
+    let h = HEADER_H + colRows * ROW_H + FOOTER_H;
     if (opts.layout) h += LAYOUT_SAFETY;
     return h;
   }

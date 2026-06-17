@@ -135,7 +135,16 @@ export function FieldLineagePanel({ tables, mappings, onAdd, onUpdate, onRemove 
   const isEditing = (m: ParsedFieldLineage) => keysMatch(editing, m);
 
   return (
-    <div className="field-lineage-panel-wrap">
+    <div className={`field-lineage-panel-wrap${mappingPanelOpen ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="field-lineage-panel__toggle"
+        onClick={toggleMappingPanel}
+        aria-expanded={mappingPanelOpen}
+        title={mappingPanelOpen ? 'Recolher mapeamentos L2' : 'Expandir mapeamentos L2'}
+      >
+        {mappingPanelOpen ? '▾' : '▸'} Mapeamento L2 · {forTarget.length}
+      </button>
       {mappingPanelOpen && (
         <div className="field-lineage-panel">
           <div className="field-lineage-panel__head">
@@ -248,14 +257,6 @@ export function FieldLineagePanel({ tables, mappings, onAdd, onUpdate, onRemove 
           </div>
         </div>
       )}
-      <button
-        type="button"
-        className={`field-lineage-panel__toggle${mappingPanelOpen ? ' is-open' : ''}`}
-        onClick={toggleMappingPanel}
-        aria-expanded={mappingPanelOpen}
-      >
-        Mapeamento
-      </button>
     </div>
   );
 }

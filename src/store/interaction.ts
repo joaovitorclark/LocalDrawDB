@@ -130,6 +130,6 @@ export const useInteraction = create<InteractionState>((set) => ({
       fieldMappingFocusNonce: s.fieldMappingFocusNonce + 1,
       mappingPanelOpen: true,
     })),
-  mappingPanelOpen: true,
+  mappingPanelOpen: false,
   toggleMappingPanel: () => set((s) => ({ mappingPanelOpen: !s.mappingPanelOpen })),
 }));
