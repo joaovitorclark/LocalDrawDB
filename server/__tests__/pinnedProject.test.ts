@@ -47,7 +47,7 @@ describe('pin de projeto por processo', () => {
     const { a, b, files } = await seedTwo();
     await files.setActiveProject(b.id);          // sem pin: ativo = Beta
     process.env.LOCALDRAWDB_PROJECT = a.slug;    // pin em Alpha
-    await files.setActiveProject(b.id);          // no-op
+    await files.setActiveProject(a.id);          // no-op — mudaria para Alpha se o guard sumisse
     delete process.env.LOCALDRAWDB_PROJECT;
     expect(await files.getActiveId()).toBe(b.id); // continua Beta (pin não escreveu)
   });
