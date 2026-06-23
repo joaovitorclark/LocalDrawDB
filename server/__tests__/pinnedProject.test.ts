@@ -79,6 +79,12 @@ describe('pin de projeto por processo', () => {
     const del = await app.inject({ method: 'DELETE', url: `/api/projects/${a.id}` });
     expect(del.statusCode).toBe(409);
 
+    const patch = await app.inject({ method: 'PATCH', url: `/api/projects/${a.id}`, payload: { name: 'Renamed' } });
+    expect(patch.statusCode).toBe(409);
+
+    const dup = await app.inject({ method: 'POST', url: `/api/projects/${a.id}/duplicate`, payload: {} });
+    expect(dup.statusCode).toBe(409);
+
     const act = await app.inject({ method: 'POST', url: `/api/projects/${a.id}/activate` });
     expect(act.statusCode).toBe(200);
     expect(act.json()).toMatchObject({ ok: true, pinned: b.slug });
