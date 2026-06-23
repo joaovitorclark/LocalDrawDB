@@ -29,6 +29,31 @@ try {
   process.exit(1);
 }
 
+// --list: imprime os projetos disponíveis e sai (estilo `uv run main.py --list`).
+if (parsed.mode === 'list') {
+  const dataDir = process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data');
+  const registryPath = path.join(dataDir, 'projects.json');
+  let registry;
+  try {
+    registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+  } catch (err) {
+    console.error(`Não foi possível ler o registry de projetos: ${registryPath}\n${err.message}`);
+    process.exit(1);
+  }
+  const projs = registry.projects ?? [];
+  if (projs.length === 0) {
+    console.log('Nenhum projeto.');
+    process.exit(0);
+  }
+  const w = Math.max(...projs.map((p) => p.slug.length), 'slug'.length);
+  console.log(`\nProjetos (${projs.length}):`);
+  console.log(`  ${'slug'.padEnd(w)}  nome`);
+  console.log(`  ${'─'.repeat(w)}  ${'─'.repeat(20)}`);
+  for (const p of projs) console.log(`  ${p.slug.padEnd(w)}  ${p.name ?? ''}`);
+  console.log();
+  process.exit(0);
+}
+
 // Collect all child handles for supervision
 /** @type {Array<{ server: import('node:child_process').ChildProcess, web: import('node:child_process').ChildProcess|null }>} */
 const instances = [];

@@ -36,23 +36,37 @@ npm start          # http://localhost:5174
 
 Por padrão, uma instância serve **todos** os projetos e você troca pelo seletor da UI.
 Para abrir **vários projetos ao mesmo tempo** (cada um na sua porta) ou **fixar** uma
-instância num projeto — útil para comparar lado a lado e **controlar o consumo de memória**:
+instância num projeto — útil para comparar lado a lado e **controlar o consumo de memória** —
+use o atalho **`./ldb`** (estilo `uv run`, sem o `--` do npm):
 
 ```bash
-npm run dev -- --project vendas        # 1 instância FIXADA no projeto "vendas"
-npm run dev -- --projects vendas,rh    # 1 instância por projeto, cada uma na sua porta
-npm run dev -- --all                   # 1 instância por projeto do projects.json
-npm run dev -- --all --preview         # idem, servindo o build estático (leve, sem Vite)
+./ldb --list             # lista os projetos (slug + nome)
+./ldb lakehouse          # fixa 1 projeto (casa por substring única do slug)
+./ldb vendas rh          # vários projetos, cada um na sua porta
+./ldb --all              # 1 instância por projeto
+./ldb --all --preview    # idem, build estático (leve, sem Vite)
+./ldb                    # modo compartilhado (todos, 1 instância) — igual a `npm run dev`
 ```
 
-- O argumento é o **slug** do projeto (mostrado em `projects.json`); slug inválido lista os
-  disponíveis e aborta.
+Sem o atalho, via npm (precisa do `--` para repassar argumentos):
+
+```bash
+npm run list                       # = ./ldb --list
+npm run dev:all                    # = ./ldb --all
+npm run preview:all                # = ./ldb --all --preview
+npm run dev -- lakehouse           # slug posicional
+npm run dev -- --project vendas    # forma com flag (equivalente)
+```
+
+- O argumento é o **slug** do projeto (`./ldb --list` mostra todos). Aceita **substring única**
+  (`lakehouse` → `exemplo-lakehouse-medallion`); se for ambíguo ou inexistente, lista os
+  candidatos e aborta sem subir nada.
 - Numa instância **fixada**, a UI mostra um rótulo **📌 \<projeto\>** no lugar do seletor —
   trocar/criar/excluir projeto fica desabilitado (cada instância serve só o seu projeto, e
   não interfere nas outras).
 - **`--preview`** sobe, por projeto, **só** o servidor de produção (serve o `dist/` buildado
   + a API na mesma porta, **sem Vite**). É a forma leve de manter vários projetos abertos:
-  rode `dev` (com HMR) no que você está editando e `--preview` nos que são só de leitura.
+  rode em modo dev (com HMR) o que você está editando e `--preview` nos que são só de leitura.
   Subir **tudo em modo dev** continua pesado por natureza (N Vites) — a economia vem de
   rodar só o necessário e usar `--preview` para o resto.
 
