@@ -120,6 +120,17 @@ async function requireUnpinned(reply: FastifyReply): Promise<boolean> {
   return true;
 }
 
+async function requirePinMatch(reply: FastifyReply, id: string): Promise<boolean> {
+  const pin = await pinnedSlug();
+  if (!pin) return true;
+  const proj = await getProject(id).catch(() => null);
+  if (proj && proj.slug !== pin) {
+    reply.code(409).send({ error: `Instância fixada no projeto "${pin}"; gravação em outro projeto bloqueada.` });
+    return false;
+  }
+  return true; // sem pin, ou id é o próprio projeto fixado, ou id inexistente (handler trata 404)
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Garante estrutura multi-projeto antes de qualquer rota ser chamada.
   await migrateLegacy();
@@ -175,6 +186,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Salva DBML + canvas de um projeto pelo id. */
   app.put<{ Params: { id: string }; Body: ProjectBody }>('/api/projects/:id', async (req, reply) => {
+    if (!(await requirePinMatch(reply, req.params.id))) return;
     try {
       const proj = await getProject(req.params.id);
       const { dbml = '', canvas = {} } = req.body ?? {};
@@ -256,6 +268,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Import de SQL para um projeto específico pelo id. */
   app.post<{ Params: { id: string }; Body: DbmlBody }>('/api/projects/:id/import', async (req, reply) => {
+    if (!(await requirePinMatch(reply, req.params.id))) return;
     try {
       const proj = await getProject(req.params.id);
       const baseDbml = req.body?.dbml ?? '';

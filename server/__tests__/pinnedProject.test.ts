@@ -65,6 +65,41 @@ describe('pin de projeto por processo', () => {
     expect(meta.pinnedProjectId).toBe(b.id);
   });
 
+  it('PUT /api/projects/:id bloqueia escrita cross-projeto sob pin; permite escrita no próprio projeto', async () => {
+    const { a, b } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    const { default: Fastify } = await import('fastify');
+    const { registerRoutes } = await import('../routes.ts');
+    const app = Fastify();
+    await registerRoutes(app);
+
+    // Escrita em Alpha (não é o projeto fixado) → 409
+    const putAlpha = await app.inject({
+      method: 'PUT',
+      url: `/api/projects/${a.id}`,
+      payload: { dbml: 'Table x { id int }', canvas: {} },
+    });
+    expect(putAlpha.statusCode).toBe(409);
+
+    // Escrita em Beta (o próprio projeto fixado) → 200
+    const putBeta = await app.inject({
+      method: 'PUT',
+      url: `/api/projects/${b.id}`,
+      payload: { dbml: 'Table x { id int }', canvas: {} },
+    });
+    expect(putBeta.statusCode).toBe(200);
+
+    // POST import em Alpha (não é o projeto fixado) → 409
+    const importAlpha = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${a.id}/import`,
+      payload: { dbml: '' },
+    });
+    expect(importAlpha.statusCode).toBe(409);
+
+    await app.close();
+  });
+
   it('CRUD de projeto retorna 409 sob pin; activate é no-op', async () => {
     const { a, b } = await seedTwo();
     process.env.LOCALDRAWDB_PROJECT = b.slug;

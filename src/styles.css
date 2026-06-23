@@ -2120,4 +2120,4 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.project-switcher__pin { font-size: 0.9em; }
+.project-switcher--pinned .project-switcher__pin { font-size: 0.9em; }
