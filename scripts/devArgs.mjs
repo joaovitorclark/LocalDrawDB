@@ -1,9 +1,11 @@
 // Parser puro das flags/slugs do launcher multimodo. Sem efeitos colaterais.
 //
-// Aceita slugs POSICIONAIS (estilo `uv run`): `lakehouse`, `vendas rh`, `vendas,rh`.
-// Flags: --all, --preview, --list, e os aliases --project/--projects.
+// SEM argumentos → `all` (todos os projetos, cada um na sua porta). `--shared` força a
+// instância única compartilhada (comportamento antigo). Slugs POSICIONAIS (estilo
+// `uv run`): `lakehouse`, `vendas rh`, `vendas,rh`. Flags: --all, --shared, --preview,
+// --list, e os aliases --project/--projects.
 export function parseDevArgs(argv) {
-  let mode = 'shared';
+  let explicit = null; // 'all' | 'shared' setado explicitamente por flag
   const slugs = [];
   let preview = false;
   let list = false;
@@ -11,29 +13,28 @@ export function parseDevArgs(argv) {
     const a = argv[i];
     if (a === '--list') {
       list = true;
-    } else if (a === '--all') {
-      if (mode === 'project') throw new Error('Use --all OU slugs, não ambos.');
-      mode = 'all';
+    } else if (a === '--all' || a === '--shared') {
+      if (slugs.length) throw new Error(`Use ${a} OU slugs, não ambos.`);
+      explicit = a === '--all' ? 'all' : 'shared';
     } else if (a === '--project' || a === '--projects') {
-      if (mode === 'all') throw new Error('Use --all OU slugs, não ambos.');
+      if (explicit) throw new Error('Use --all/--shared OU slugs, não ambos.');
       const val = argv[++i];
       if (!val || val.startsWith('--')) throw new Error(`${a} exige um slug (ex.: ${a} vendas).`);
       for (const s of val.split(',').map((x) => x.trim()).filter(Boolean)) slugs.push(s);
-      mode = 'project';
     } else if (a === '--preview') {
       preview = true;
     } else if (a.startsWith('--')) {
       throw new Error(`Flag desconhecida: ${a}`);
     } else {
       // Argumento posicional → slug(s) (aceita lista por vírgula).
-      if (mode === 'all') throw new Error('Use --all OU slugs, não ambos.');
+      if (explicit) throw new Error('Use --all/--shared OU slugs, não ambos.');
       for (const s of a.split(',').map((x) => x.trim()).filter(Boolean)) slugs.push(s);
-      mode = 'project';
     }
   }
   if (list) return { mode: 'list', slugs: null, preview: false };
-  if (mode === 'project' && slugs.length === 0) throw new Error('--project(s) exige ao menos um slug.');
-  return { mode, slugs: mode === 'project' ? slugs : null, preview };
+  if (slugs.length) return { mode: 'project', slugs, preview };
+  // Sem slugs: default = TODOS; --shared força a instância única compartilhada.
+  return { mode: explicit === 'shared' ? 'shared' : 'all', slugs: null, preview };
 }
 
 /**

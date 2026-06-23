@@ -13,6 +13,7 @@
     "predev": "node scripts/check-node.mjs",
     "prestart": "node scripts/check-node.mjs",
     "dev": "node scripts/dev.mjs",
+    "dev:shared": "node scripts/dev.mjs --shared",
     "dev:all": "node scripts/dev.mjs --all",
     "preview:all": "node scripts/dev.mjs --all --preview",
     "list": "node scripts/dev.mjs --list",
