@@ -33,6 +33,15 @@ export type ProjectMeta = {
   updatedAt: string;
 };
 
+export type Meta = {
+  root: string;
+  dataDir: string;
+  inputDir: string;
+  port: number;
+  pinnedProject: string | null;
+  pinnedProjectId: string | null;
+};
+
 export type ExportFormat =
   | 'localdrawdb'
   | 'spark-ddl'
@@ -165,6 +174,8 @@ export async function saveProject(dbml: string, canvas: CanvasState): Promise<vo
 }
 
 // --- API multi-projetos (F2) ---
+
+export const getMeta = (): Promise<Meta> => get('/api/meta');
 
 export const listProjects = (): Promise<{ activeId: string; projects: ProjectMeta[] }> =>
   get('/api/projects');

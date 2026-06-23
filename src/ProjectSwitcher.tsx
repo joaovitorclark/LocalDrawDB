@@ -10,6 +10,7 @@ type Props = {
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string, name?: string) => void;
   onDelete: (id: string) => void;
+  pinnedLabel?: string;
 };
 
 export function ProjectSwitcher({
@@ -21,6 +22,7 @@ export function ProjectSwitcher({
   onRename,
   onDuplicate,
   onDelete,
+  pinnedLabel,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -79,6 +81,18 @@ export function ProjectSwitcher({
   };
 
   const isDirty = saveState === 'dirty';
+
+  if (pinnedLabel) {
+    return (
+      <div
+        className="project-switcher project-switcher--pinned"
+        title="Instância fixada neste projeto (porta dedicada)"
+      >
+        <span className="project-switcher__pin" aria-hidden="true">📌</span>
+        <span className="project-switcher__name">{pinnedLabel}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="project-switcher" ref={rootRef}>

@@ -119,6 +119,7 @@ export default function App() {
   // Estado multi-projetos (F2)
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState('');
+  const [pinnedProjectId, setPinnedProjectId] = useState<string | null>(null);
   const loadedRef = useRef(false);
   const prevDbmlRef = useRef('');
   const editorRef = useRef<EditorHandle>(null);
@@ -198,6 +199,11 @@ export default function App() {
       .finally(() => {
         loadedRef.current = true;
       });
+  }, []);
+
+  // Busca metadados do servidor na montagem para detectar instância fixada (F3).
+  useEffect(() => {
+    api.getMeta().then((m) => setPinnedProjectId(m.pinnedProjectId)).catch(() => {});
   }, []);
 
   // Commit debounced ao histórico: empurra o baseline anterior quando o estado muda.
@@ -1153,6 +1159,7 @@ export default function App() {
             onRename={handleRenameProject}
             onDuplicate={handleDuplicateProject}
             onDelete={handleDeleteProject}
+            pinnedLabel={pinnedProjectId ? projects.find((p) => p.id === pinnedProjectId)?.name : undefined}
           />
         )}
         <button onClick={undo} disabled={!past.length} title="Desfazer (Cmd/Ctrl+Z)">
