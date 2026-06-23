@@ -111,7 +111,7 @@ async function runImport(
   };
 }
 
-async function requireUnpinned(reply: import('fastify').FastifyReply): Promise<boolean> {
+async function requireUnpinned(reply: FastifyReply): Promise<boolean> {
   const pin = await pinnedSlug();
   if (pin) {
     reply.code(409).send({ error: `Instância fixada no projeto "${pin}"; gerenciamento desabilitado.` });
