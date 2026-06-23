@@ -26,4 +26,7 @@ describe('parseDevArgs', () => {
   it('flag desconhecida é erro', () => {
     expect(() => parseDevArgs(['--bogus'])).toThrow(/desconhecida/);
   });
+  it('--projects seguido de outra flag é erro', () => {
+    expect(() => parseDevArgs(['--projects', '--all'])).toThrow(/exige/);
+  });
 });
