@@ -91,4 +91,10 @@ describe('resolveSlugs — match por substring', () => {
   it('list → null', () => {
     expect(resolveSlugs(parseDevArgs(['--list']), REG3)).toBeNull();
   });
+  it('deduplica termos que resolvem para o mesmo projeto', () => {
+    // "vendas" é substring de "exemplo-vendas-e-commerce" → não deve subir o mesmo projeto 2×
+    expect(resolveSlugs(parseDevArgs(['exemplo-vendas-e-commerce', 'vendas']), REG3)).toEqual([
+      'exemplo-vendas-e-commerce',
+    ]);
+  });
 });

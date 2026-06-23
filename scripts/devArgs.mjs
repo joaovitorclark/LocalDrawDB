@@ -65,5 +65,6 @@ export function resolveSlugs(parsed, registry) {
       throw new Error(`"${term}" é ambíguo: ${matches.join(', ')}. Seja mais específico.`);
     }
   }
-  return resolved;
+  // Dedup: dois termos podem casar o mesmo projeto (ex.: slug exato + uma substring dele).
+  return [...new Set(resolved)];
 }
