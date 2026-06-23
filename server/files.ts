@@ -327,8 +327,8 @@ export async function pinnedSlug(): Promise<string | null> {
 }
 
 export async function getActiveId(): Promise<string> {
-  const reg = await readRegistry();
   const pin = await pinnedSlug();
+  const reg = await readRegistry();
   if (pin) {
     const proj = reg.projects.find((p) => p.slug === pin);
     if (proj) return proj.id;
