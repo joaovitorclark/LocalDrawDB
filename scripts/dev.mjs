@@ -149,8 +149,11 @@ if (slugs === null) {
   /** @type {Array<{ slug: string, apiPort: number, webPort: number }>} */
   const instanceMeta = [];
 
+  const usedPorts = new Set();
   for (const slug of slugs) {
-    const { apiPort, webPort } = await allocateDevPorts();
+    const { apiPort, webPort } = await allocateDevPorts(process.env, usedPorts);
+    usedPorts.add(apiPort);
+    usedPorts.add(webPort);
     instanceMeta.push({ slug, apiPort, webPort });
   }
 
