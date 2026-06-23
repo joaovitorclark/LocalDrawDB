@@ -111,6 +111,15 @@ async function runImport(
   };
 }
 
+async function requireUnpinned(reply: import('fastify').FastifyReply): Promise<boolean> {
+  const pin = await pinnedSlug();
+  if (pin) {
+    reply.code(409).send({ error: `Instância fixada no projeto "${pin}"; gerenciamento desabilitado.` });
+    return false;
+  }
+  return true;
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Garante estrutura multi-projeto antes de qualquer rota ser chamada.
   await migrateLegacy();
@@ -144,6 +153,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Cria novo projeto. Retorna 201 com o ProjectMeta. */
   app.post<{ Body: CreateProjectBody }>('/api/projects', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     const name = req.body?.name ?? 'Novo Projeto';
     const meta = await createProject(name);
     reply.code(201);
@@ -180,6 +190,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Renomeia um projeto pelo id. */
   app.patch<{ Params: { id: string }; Body: { name?: string } }>('/api/projects/:id', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     try {
       const name = req.body?.name ?? '';
       await renameProject(req.params.id, name);
@@ -194,6 +205,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Remove um projeto. 409 se for o último; 404 se não encontrado. */
   app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     try {
       // Verifica existência antes de tentar deletar (para distinguir 404 de 409).
       await getProject(req.params.id);
@@ -213,6 +225,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Duplica um projeto. Retorna 201 com o novo ProjectMeta. */
   app.post<{ Params: { id: string }; Body: DuplicateBody }>('/api/projects/:id/duplicate', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     try {
       const newName = req.body?.name;
       const meta = await duplicateProject(req.params.id, newName);
@@ -228,6 +241,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Torna um projeto o ativo. */
   app.post<{ Params: { id: string } }>('/api/projects/:id/activate', async (req, reply) => {
+    const pin = await pinnedSlug();
+    if (pin) return { ok: true, pinned: pin };
     try {
       await setActiveProject(req.params.id);
       return { ok: true, activeId: req.params.id };

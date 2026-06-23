@@ -64,4 +64,28 @@ describe('pin de projeto por processo', () => {
     expect(meta.pinnedProject).toBe(b.slug);
     expect(meta.pinnedProjectId).toBe(b.id);
   });
+
+  it('CRUD de projeto retorna 409 sob pin; activate é no-op', async () => {
+    const { a, b } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    const { default: Fastify } = await import('fastify');
+    const { registerRoutes } = await import('../routes.ts');
+    const app = Fastify();
+    await registerRoutes(app);
+
+    const create = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'X' } });
+    expect(create.statusCode).toBe(409);
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${a.id}` });
+    expect(del.statusCode).toBe(409);
+
+    const act = await app.inject({ method: 'POST', url: `/api/projects/${a.id}/activate` });
+    expect(act.statusCode).toBe(200);
+    expect(act.json()).toMatchObject({ ok: true, pinned: b.slug });
+
+    // leitura segue funcionando
+    const list = await app.inject({ method: 'GET', url: '/api/projects' });
+    expect(list.statusCode).toBe(200);
+    await app.close();
+  });
 });
