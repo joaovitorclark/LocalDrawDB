@@ -51,4 +51,17 @@ describe('pin de projeto por processo', () => {
     delete process.env.LOCALDRAWDB_PROJECT;
     expect(await files.getActiveId()).toBe(b.id); // continua Beta (pin não escreveu)
   });
+
+  it('/api/meta expõe pinnedProject quando fixado', async () => {
+    const { b } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    const { default: Fastify } = await import('fastify');
+    const { registerRoutes } = await import('../routes.ts');
+    const app = Fastify();
+    await registerRoutes(app);
+    const meta = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as any;
+    await app.close();
+    expect(meta.pinnedProject).toBe(b.slug);
+    expect(meta.pinnedProjectId).toBe(b.id);
+  });
 });

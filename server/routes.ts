@@ -22,6 +22,8 @@ import {
   getActiveSlug,
   saveProject,
   writeOutput,
+  pinnedSlug,
+  readRegistry,
 } from './files.ts';
 import type { Model } from './model.ts';
 import { registerExportRoutes } from './routes/exportRoutes.ts';
@@ -113,12 +115,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Garante estrutura multi-projeto antes de qualquer rota ser chamada.
   await migrateLegacy();
 
-  app.get('/api/meta', async () => ({
-    root: ROOT,
-    dataDir: DATA_DIR,
-    inputDir: await getActiveInputDir(),
-    port: Number(process.env.PORT ?? 5174),
-  }));
+  app.get('/api/meta', async () => {
+    const pin = await pinnedSlug();
+    let pinnedProjectId: string | null = null;
+    if (pin) {
+      const reg = await readRegistry();
+      pinnedProjectId = reg.projects.find((p) => p.slug === pin)?.id ?? null;
+    }
+    return {
+      root: ROOT,
+      dataDir: DATA_DIR,
+      inputDir: await getActiveInputDir(),
+      port: Number(process.env.PORT ?? 5174),
+      pinnedProject: pin,
+      pinnedProjectId,
+    };
+  });
 
   // ──────────────────────────────────────────────────────────────
   // Rotas CRUD de projetos
