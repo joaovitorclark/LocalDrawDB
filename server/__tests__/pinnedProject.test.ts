@@ -1,0 +1,132 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+let tmpDir: string;
+
+beforeEach(async () => {
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'localdrawdb-pin-'));
+  process.env.LOCALDRAWDB_DATA_DIR = tmpDir;
+});
+
+afterEach(async () => {
+  delete process.env.LOCALDRAWDB_DATA_DIR;
+  delete process.env.LOCALDRAWDB_PROJECT;
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+async function seedTwo() {
+  const files = await import('../files.ts');
+  const a = await files.createProject('Alpha'); // primeiro = ativo
+  const b = await files.createProject('Beta');
+  return { a, b, files };
+}
+
+describe('pin de projeto por processo', () => {
+  it('getActiveSlug/getActiveId honram LOCALDRAWDB_PROJECT', async () => {
+    const { b, files } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    expect(await files.getActiveSlug()).toBe(b.slug);
+    expect(await files.getActiveId()).toBe(b.id);
+  });
+
+  it('sem pin, segue o activeId do registry (não-regressão)', async () => {
+    const { a, files } = await seedTwo();
+    expect(await files.getActiveId()).toBe(a.id);
+    expect(await files.getActiveSlug()).toBe(a.slug);
+  });
+
+  it('pin com slug inexistente lança erro claro', async () => {
+    const { files } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = 'nao-existe';
+    await expect(files.pinnedSlug()).rejects.toThrow(/nao-existe/);
+  });
+
+  it('setActiveProject não persiste sob pin', async () => {
+    const { a, b, files } = await seedTwo();
+    await files.setActiveProject(b.id);          // sem pin: ativo = Beta
+    process.env.LOCALDRAWDB_PROJECT = a.slug;    // pin em Alpha
+    await files.setActiveProject(a.id);          // no-op — mudaria para Alpha se o guard sumisse
+    delete process.env.LOCALDRAWDB_PROJECT;
+    expect(await files.getActiveId()).toBe(b.id); // continua Beta (pin não escreveu)
+  });
+
+  it('/api/meta expõe pinnedProject quando fixado', async () => {
+    const { b } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    const { default: Fastify } = await import('fastify');
+    const { registerRoutes } = await import('../routes.ts');
+    const app = Fastify();
+    await registerRoutes(app);
+    const meta = (await app.inject({ method: 'GET', url: '/api/meta' })).json() as any;
+    await app.close();
+    expect(meta.pinnedProject).toBe(b.slug);
+    expect(meta.pinnedProjectId).toBe(b.id);
+  });
+
+  it('PUT /api/projects/:id bloqueia escrita cross-projeto sob pin; permite escrita no próprio projeto', async () => {
+    const { a, b } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    const { default: Fastify } = await import('fastify');
+    const { registerRoutes } = await import('../routes.ts');
+    const app = Fastify();
+    await registerRoutes(app);
+
+    // Escrita em Alpha (não é o projeto fixado) → 409
+    const putAlpha = await app.inject({
+      method: 'PUT',
+      url: `/api/projects/${a.id}`,
+      payload: { dbml: 'Table x { id int }', canvas: {} },
+    });
+    expect(putAlpha.statusCode).toBe(409);
+
+    // Escrita em Beta (o próprio projeto fixado) → 200
+    const putBeta = await app.inject({
+      method: 'PUT',
+      url: `/api/projects/${b.id}`,
+      payload: { dbml: 'Table x { id int }', canvas: {} },
+    });
+    expect(putBeta.statusCode).toBe(200);
+
+    // POST import em Alpha (não é o projeto fixado) → 409
+    const importAlpha = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${a.id}/import`,
+      payload: { dbml: '' },
+    });
+    expect(importAlpha.statusCode).toBe(409);
+
+    await app.close();
+  });
+
+  it('CRUD de projeto retorna 409 sob pin; activate é no-op', async () => {
+    const { a, b } = await seedTwo();
+    process.env.LOCALDRAWDB_PROJECT = b.slug;
+    const { default: Fastify } = await import('fastify');
+    const { registerRoutes } = await import('../routes.ts');
+    const app = Fastify();
+    await registerRoutes(app);
+
+    const create = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'X' } });
+    expect(create.statusCode).toBe(409);
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${a.id}` });
+    expect(del.statusCode).toBe(409);
+
+    const patch = await app.inject({ method: 'PATCH', url: `/api/projects/${a.id}`, payload: { name: 'Renamed' } });
+    expect(patch.statusCode).toBe(409);
+
+    const dup = await app.inject({ method: 'POST', url: `/api/projects/${a.id}/duplicate`, payload: {} });
+    expect(dup.statusCode).toBe(409);
+
+    const act = await app.inject({ method: 'POST', url: `/api/projects/${a.id}/activate` });
+    expect(act.statusCode).toBe(200);
+    expect(act.json()).toMatchObject({ ok: true, pinned: b.slug });
+
+    // leitura segue funcionando
+    const list = await app.inject({ method: 'GET', url: '/api/projects' });
+    expect(list.statusCode).toBe(200);
+    await app.close();
+  });
+});

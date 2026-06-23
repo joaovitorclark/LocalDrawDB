@@ -22,6 +22,8 @@ import {
   getActiveSlug,
   saveProject,
   writeOutput,
+  pinnedSlug,
+  readRegistry,
 } from './files.ts';
 import type { Model } from './model.ts';
 import { registerExportRoutes } from './routes/exportRoutes.ts';
@@ -109,16 +111,46 @@ async function runImport(
   };
 }
 
+async function requireUnpinned(reply: FastifyReply): Promise<boolean> {
+  const pin = await pinnedSlug();
+  if (pin) {
+    reply.code(409).send({ error: `Instância fixada no projeto "${pin}"; gerenciamento desabilitado.` });
+    return false;
+  }
+  return true;
+}
+
+async function requirePinMatch(reply: FastifyReply, id: string): Promise<boolean> {
+  const pin = await pinnedSlug();
+  if (!pin) return true;
+  const proj = await getProject(id).catch(() => null);
+  if (proj && proj.slug !== pin) {
+    reply.code(409).send({ error: `Instância fixada no projeto "${pin}"; gravação em outro projeto bloqueada.` });
+    return false;
+  }
+  return true; // sem pin, ou id é o próprio projeto fixado, ou id inexistente (handler trata 404)
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Garante estrutura multi-projeto antes de qualquer rota ser chamada.
   await migrateLegacy();
 
-  app.get('/api/meta', async () => ({
-    root: ROOT,
-    dataDir: DATA_DIR,
-    inputDir: await getActiveInputDir(),
-    port: Number(process.env.PORT ?? 5174),
-  }));
+  app.get('/api/meta', async () => {
+    const pin = await pinnedSlug();
+    let pinnedProjectId: string | null = null;
+    if (pin) {
+      const reg = await readRegistry();
+      pinnedProjectId = reg.projects.find((p) => p.slug === pin)?.id ?? null;
+    }
+    return {
+      root: ROOT,
+      dataDir: DATA_DIR,
+      inputDir: await getActiveInputDir(),
+      port: Number(process.env.PORT ?? 5174),
+      pinnedProject: pin,
+      pinnedProjectId,
+    };
+  });
 
   // ──────────────────────────────────────────────────────────────
   // Rotas CRUD de projetos
@@ -132,6 +164,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Cria novo projeto. Retorna 201 com o ProjectMeta. */
   app.post<{ Body: CreateProjectBody }>('/api/projects', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     const name = req.body?.name ?? 'Novo Projeto';
     const meta = await createProject(name);
     reply.code(201);
@@ -153,6 +186,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Salva DBML + canvas de um projeto pelo id. */
   app.put<{ Params: { id: string }; Body: ProjectBody }>('/api/projects/:id', async (req, reply) => {
+    if (!(await requirePinMatch(reply, req.params.id))) return;
     try {
       const proj = await getProject(req.params.id);
       const { dbml = '', canvas = {} } = req.body ?? {};
@@ -168,6 +202,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Renomeia um projeto pelo id. */
   app.patch<{ Params: { id: string }; Body: { name?: string } }>('/api/projects/:id', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     try {
       const name = req.body?.name ?? '';
       await renameProject(req.params.id, name);
@@ -182,6 +217,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Remove um projeto. 409 se for o último; 404 se não encontrado. */
   app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     try {
       // Verifica existência antes de tentar deletar (para distinguir 404 de 409).
       await getProject(req.params.id);
@@ -201,6 +237,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Duplica um projeto. Retorna 201 com o novo ProjectMeta. */
   app.post<{ Params: { id: string }; Body: DuplicateBody }>('/api/projects/:id/duplicate', async (req, reply) => {
+    if (!(await requireUnpinned(reply))) return;
     try {
       const newName = req.body?.name;
       const meta = await duplicateProject(req.params.id, newName);
@@ -216,6 +253,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Torna um projeto o ativo. */
   app.post<{ Params: { id: string } }>('/api/projects/:id/activate', async (req, reply) => {
+    const pin = await pinnedSlug();
+    if (pin) return { ok: true, pinned: pin };
     try {
       await setActiveProject(req.params.id);
       return { ok: true, activeId: req.params.id };
@@ -229,6 +268,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   /** Import de SQL para um projeto específico pelo id. */
   app.post<{ Params: { id: string }; Body: DbmlBody }>('/api/projects/:id/import', async (req, reply) => {
+    if (!(await requirePinMatch(reply, req.params.id))) return;
     try {
       const proj = await getProject(req.params.id);
       const baseDbml = req.body?.dbml ?? '';

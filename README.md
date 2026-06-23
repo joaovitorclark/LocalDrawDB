@@ -32,6 +32,47 @@ npm run build
 npm start          # http://localhost:5174
 ```
 
+### Rodar projetos em portas isoladas
+
+Por padrão, uma instância serve **todos** os projetos e você troca pelo seletor da UI.
+Para abrir **vários projetos ao mesmo tempo** (cada um na sua porta) ou **fixar** uma
+instância num projeto — útil para comparar lado a lado e **controlar o consumo de memória** —
+use o atalho **`./ldb`** (estilo `uv run`, sem o `--` do npm):
+
+```bash
+./ldb --list             # lista os projetos (slug + nome)
+./ldb lakehouse          # fixa 1 projeto (casa por substring única do slug)
+./ldb vendas rh          # vários projetos, cada um na sua porta
+./ldb --all              # 1 instância por projeto
+./ldb --all --preview    # idem, build estático (leve, sem Vite)
+./ldb                    # modo compartilhado (todos, 1 instância) — igual a `npm run dev`
+```
+
+Sem o atalho, via npm (precisa do `--` para repassar argumentos):
+
+```bash
+npm run list                       # = ./ldb --list
+npm run dev:all                    # = ./ldb --all
+npm run preview:all                # = ./ldb --all --preview
+npm run dev -- lakehouse           # slug posicional
+npm run dev -- --project vendas    # forma com flag (equivalente)
+```
+
+- O argumento é o **slug** do projeto (`./ldb --list` mostra todos). Aceita **substring única**
+  (`lakehouse` → `exemplo-lakehouse-medallion`); se for ambíguo ou inexistente, lista os
+  candidatos e aborta sem subir nada.
+- Numa instância **fixada**, a UI mostra um rótulo **📌 \<projeto\>** no lugar do seletor —
+  trocar/criar/excluir projeto fica desabilitado (cada instância serve só o seu projeto, e
+  não interfere nas outras).
+- **`--preview`** sobe, por projeto, **só** o servidor de produção (serve o `dist/` buildado
+  + a API na mesma porta, **sem Vite**). É a forma leve de manter vários projetos abertos:
+  rode em modo dev (com HMR) o que você está editando e `--preview` nos que são só de leitura.
+  Subir **tudo em modo dev** continua pesado por natureza (N Vites) — a economia vem de
+  rodar só o necessário e usar `--preview` para o resto.
+
+`Ctrl-C` encerra todas as instâncias do conjunto. Detalhes em
+[`spec/per-project-ports-spec.md`](spec/per-project-ports-spec.md).
+
 ## Como usar
 
 - **Editor (esquerda)**: DBML com realce de sintaxe, **Outline** (filtro + clique para ir à linha/tabela), fold de comentários.

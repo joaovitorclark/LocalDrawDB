@@ -38,9 +38,9 @@ export async function waitForPort(port, host = '127.0.0.1', timeoutMs = 60_000) 
   throw new Error(`API nao respondeu em ${host}:${port} dentro de ${timeoutMs}ms`);
 }
 
-export async function allocateDevPorts(env = process.env) {
-  const apiPort = await findFreePort(Number(env.PORT) || 5174);
-  const webPort = await findFreePort(Number(env.VITE_PORT) || 5173, '127.0.0.1', new Set([apiPort]));
+export async function allocateDevPorts(env = process.env, exclude = new Set()) {
+  const apiPort = await findFreePort(Number(env.PORT) || 5174, '127.0.0.1', exclude);
+  const webPort = await findFreePort(Number(env.VITE_PORT) || 5173, '127.0.0.1', new Set([...exclude, apiPort]));
   if (webPort === apiPort) {
     throw new Error(`Portas dev conflitantes (web=api=${apiPort}). Encerre outros npm run dev e tente de novo.`);
   }

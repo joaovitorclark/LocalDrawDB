@@ -8,7 +8,15 @@ function resolveApiPort(): number {
   const metaPath = path.resolve('.localdrawdb-dev.json');
   if (existsSync(metaPath)) {
     try {
-      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as { apiPort?: number };
+      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as {
+        apiPort?: number;
+        instances?: Array<{ slug: string | null; apiPort: number; webPort: number }>;
+      };
+      // New format: { instances: [...] }
+      if (meta.instances && meta.instances.length > 0 && meta.instances[0].apiPort) {
+        return meta.instances[0].apiPort;
+      }
+      // Legacy format: { apiPort }
       if (meta.apiPort) return meta.apiPort;
     } catch {
       /* fallback */
