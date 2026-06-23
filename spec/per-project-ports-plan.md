@@ -664,19 +664,136 @@ git commit -m "feat(ports): dev.mjs multimodo (--project/--projects/--all)"
 
 ## FASE 3 — Frontend fixado
 
-> Detalhar ao iniciar a fase. Esboço:
+Detalhamento bite-sized. Sem harness de teste de componente React no repo (testes são
+server/dsl), então a verificação da UI é o **browser smoke** (`scripts/verify-*.mjs` +
+Chrome do sistema, padrão da memória `headless-verify-system-chrome`). Arquivos:
+`src/api.ts`, `src/ProjectSwitcher.tsx`, `src/App.tsx`, `src/styles.css`,
+`scripts/verify-per-project-ports.mjs` (novo). Ordem: 3.1 implementação → 3.2 verificação.
 
-- **Task 3.1 — Tipo de meta (`src/api.ts`):** acrescentar `pinnedProject?: string|null` e
-  `pinnedProjectId?: string|null` ao tipo do `/api/meta` e à função que o busca.
-- **Task 3.2 — `ProjectSwitcher` read-only:** nova prop `pinnedLabel?: string`; quando
-  presente, renderiza `📌 {pinnedLabel}` (sem dropdown/botões). Caminho atual inalterado
-  quando ausente.
-- **Task 3.3 — `App.tsx`:** ao carregar meta, se `pinnedProject`, achar o nome do projeto
-  na lista e passar `pinnedLabel` ao `ProjectSwitcher`; suprimir as ações de troca/CRUD.
-- **Task 3.4 — Verificação no navegador:** `scripts/verify-per-project-ports.mjs`
-  (playwright-core + Chrome do sistema, data dir isolado): subir instância com
-  `LOCALDRAWDB_PROJECT`, abrir a web, asserir rótulo `📌` e ausência do dropdown; zero
-  erros de console. (Ver memória `headless-verify-system-chrome`.)
+### Task 3.1: Frontend pin-aware (api `getMeta` + `ProjectSwitcher` 📌 + wiring no `App`)
+
+**Files:**
+- Modify: `src/api.ts` (tipo `Meta` + `getMeta`)
+- Modify: `src/ProjectSwitcher.tsx` (prop `pinnedLabel`)
+- Modify: `src/App.tsx` (busca meta, passa `pinnedLabel`)
+- Modify: `src/styles.css` (estilo do rótulo fixado)
+
+**Interfaces:**
+- Produces: `getMeta(): Promise<Meta>` onde
+  `Meta = { root; dataDir; inputDir; port; pinnedProject: string|null; pinnedProjectId: string|null }`.
+- `ProjectSwitcher` ganha prop opcional `pinnedLabel?: string`.
+
+- [ ] **Step 1: `src/api.ts` — tipo + fetch.** Após `ProjectMeta` (ou junto dos demais
+  fetchers), adicionar:
+
+```ts
+export type Meta = {
+  root: string;
+  dataDir: string;
+  inputDir: string;
+  port: number;
+  pinnedProject: string | null;
+  pinnedProjectId: string | null;
+};
+
+export const getMeta = (): Promise<Meta> => get('/api/meta');
+```
+
+(`get<T>` já existe em `src/api.ts`.)
+
+- [ ] **Step 2: `src/ProjectSwitcher.tsx` — rótulo fixado.** Adicionar `pinnedLabel?: string`
+  ao tipo `Props`. No componente, ANTES do `return` principal (após os hooks/handlers,
+  ex.: depois de `const isDirty = ...`), inserir um early-return:
+
+```tsx
+  if (pinnedLabel) {
+    return (
+      <div
+        className="project-switcher project-switcher--pinned"
+        title="Instância fixada neste projeto (porta dedicada)"
+      >
+        <span className="project-switcher__pin" aria-hidden="true">📌</span>
+        <span className="project-switcher__name">{pinnedLabel}</span>
+      </div>
+    );
+  }
+```
+
+Incluir `pinnedLabel` na desestruturação das props do componente. Sem `pinnedLabel`, o
+caminho atual (trigger + dropdown) fica intacto.
+
+- [ ] **Step 3: `src/App.tsx` — buscar meta e passar `pinnedLabel`.**
+  - Adicionar estado: `const [pinnedProjectId, setPinnedProjectId] = useState<string | null>(null);`
+  - Em um `useEffect` de montagem (pode ser um novo, ao lado do que chama `listProjects`):
+    ```tsx
+    useEffect(() => {
+      api.getMeta().then((m) => setPinnedProjectId(m.pinnedProjectId)).catch(() => {});
+    }, []);
+    ```
+  - Na renderização do `<ProjectSwitcher .../>`, acrescentar a prop:
+    ```tsx
+    pinnedLabel={pinnedProjectId ? projects.find((p) => p.id === pinnedProjectId)?.name : undefined}
+    ```
+  Quando fixado, o switcher vira rótulo (sem dropdown), então as ações de troca/CRUD não
+  ficam acessíveis — nada mais a suprimir.
+
+- [ ] **Step 4: `src/styles.css` — estilo do rótulo.** Adicionar uma regra discreta:
+
+```css
+.project-switcher--pinned {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-weight: 600;
+  color: #13284b;
+  background: #eef2f8;
+  border-radius: 6px;
+}
+.project-switcher__pin { font-size: 0.9em; }
+```
+
+(Ajustar às variáveis/tokens existentes em `styles.css` se houver — seguir o padrão do
+arquivo.)
+
+- [ ] **Step 5: Verificar build/typecheck.** `npm run typecheck` limpo; `npm run build`
+  conclui. Suíte (`npm test`) permanece verde (nenhuma mudança de servidor).
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add src/api.ts src/ProjectSwitcher.tsx src/App.tsx src/styles.css
+git commit -m "feat(ports): UI fixada — rótulo 📌 e getMeta (esconde o seletor sob pin)"
+```
+
+### Task 3.2: Verificação no navegador (`scripts/verify-per-project-ports.mjs`)
+
+**Files:**
+- Create: `scripts/verify-per-project-ports.mjs`
+
+Integração de UI — verificada com Chrome do sistema (memória `headless-verify-system-chrome`).
+Deliverable rodado pelo controller.
+
+- [ ] **Step 1: Script de verificação.** Seguindo o padrão de `scripts/verify-*.mjs`
+  existentes (playwright-core dirigindo o Chrome do sistema em
+  `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, captura de
+  `pageerror`/`console` e falha se houver qualquer erro): em um `LOCALDRAWDB_DATA_DIR`
+  isolado com ≥1 projeto, subir o servidor de produção com `LOCALDRAWDB_PROJECT=<slug>`
+  (build antes), abrir a web, e asserir:
+  - existe `.project-switcher--pinned` com o texto do projeto (📌);
+  - **não** existe `.project-switcher__trigger` (o dropdown de troca sumiu);
+  - zero erros de console/página.
+
+- [ ] **Step 2: Controller roda o smoke.** Build + servidor com pin + Chrome; confirmar as
+  asserções e zero erros. (Como o servidor de produção serve `dist/`, e o pin é por env,
+  reaproveita o `LOCALDRAWDB_PROJECT` validado no boot da F2.)
+
+- [ ] **Step 3: Commit do script.**
+
+```bash
+git add scripts/verify-per-project-ports.mjs
+git commit -m "test(ports): verificação no navegador da UI fixada"
+```
 
 ## FASE 4 — Modo `--preview` (alavanca de memória)
 
