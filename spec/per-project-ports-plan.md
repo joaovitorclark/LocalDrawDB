@@ -415,31 +415,252 @@ protegida. `npm run dev` atual continua intacto (nenhum env setado).
 
 ## FASE 2 — Launcher dev multimodo
 
-> Detalhar passo a passo ao iniciar a fase (após F1). Esboço de tarefas:
+Detalhamento bite-sized. Arquivos: `scripts/devArgs.mjs` (novo — parser + resolver puros),
+`scripts/__tests__/devArgs.test.ts` (novo), `scripts/dev.mjs` (orquestração), `server/index.ts`
+(validação no boot). Ordem: 2.1 → 2.2 (puros, TDD) → 2.0 (wiring) → 2.3 (integração).
+`--preview` é apenas **parseado** aqui; sua implementação é a F4 — em F2 o launcher recusa
+`--preview` com mensagem "chega na F4".
 
-- **Task 2.1 — `parseDevArgs(argv)` (puro, testável):** novo `scripts/devArgs.mjs`
-  retornando `{ mode: 'shared'|'multi', slugs: string[]|null, preview: boolean }`. Testes
-  em `scripts/__tests__/devArgs.test.ts` cobrindo `[]`, `--project x`, `--projects x,y`,
-  `--all`, `--all --project x` (erro de exclusividade), `--projects` vazio (erro),
-  `--preview`. **(Vitest)**
-- **Task 2.2 — Resolver slugs:** ler o registry (reusar `readRegistry`/`listProjects` via
-  um import dinâmico ou ler `projects.json`); `--all` → todos; validar `--projects`; em
-  erro, imprimir slugs disponíveis e `process.exit(1)`.
-- **Task 2.3 — Spawn por slug (dev):** para cada slug, `allocateDevPorts()` e spawnar
-  `tsx watch server/index.ts` + `vite --port <web> --strictPort` com env
-  `{ ...process.env, LOCALDRAWDB_PROJECT: slug, PORT, VITE_PORT, API_PORT }`. Aguardar
-  `waitForPort(apiPort)` antes do Vite (como hoje).
-- **Task 2.0 — Validação do pin no boot (recomendação da review final da F1):** hoje
-  `pinnedSlug()` valida e lança, mas nada o chama no boot — um `LOCALDRAWDB_PROJECT`
-  inválido só falha na 1ª requisição (como 500). A F2 deve chamar `pinnedSlug()` (ou um
-  check equivalente) no startup em `server/index.ts` para falhar cedo e com mensagem clara,
-  cumprindo a promessa da spec ("instância não sobe silenciosamente no projeto errado").
-- **Task 2.4 — Meta multi + supervisão:** `.localdrawdb-dev.json` vira
-  `{ instances: [{ slug, apiPort, webPort }], root }` (modo `shared` = 1 instância sem
-  slug, retrocompat de leitura). `SIGINT/SIGTERM` mata todos os filhos e remove o meta;
-  filho com exit ≠ 0 derruba o conjunto. Imprimir tabela `projeto | web | api`.
-- **Smoke opcional:** subir `--projects alpha,beta` em data dir isolado e checar dois
-  `web` respondendo (pode ser teste manual documentado).
+### Task 2.1: `parseDevArgs(argv)` — parser puro
+
+**Files:**
+- Create: `scripts/devArgs.mjs`
+- Test: `scripts/__tests__/devArgs.test.ts`
+
+**Interfaces:**
+- Produces: `parseDevArgs(argv: string[]): { mode: 'shared'|'project'|'all', slugs: string[]|null, preview: boolean }`.
+  `argv` = `process.argv.slice(2)`. Lança `Error` em uso inválido.
+
+- [ ] **Step 1: Teste que falha** — criar `scripts/__tests__/devArgs.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { parseDevArgs } from '../devArgs.mjs';
+
+describe('parseDevArgs', () => {
+  it('sem flags = shared', () => {
+    expect(parseDevArgs([])).toEqual({ mode: 'shared', slugs: null, preview: false });
+  });
+  it('--project x', () => {
+    expect(parseDevArgs(['--project', 'vendas'])).toEqual({ mode: 'project', slugs: ['vendas'], preview: false });
+  });
+  it('--projects x,y', () => {
+    expect(parseDevArgs(['--projects', 'a, b'])).toEqual({ mode: 'project', slugs: ['a', 'b'], preview: false });
+  });
+  it('--all', () => {
+    expect(parseDevArgs(['--all'])).toEqual({ mode: 'all', slugs: null, preview: false });
+  });
+  it('--preview combina com --all', () => {
+    expect(parseDevArgs(['--all', '--preview'])).toEqual({ mode: 'all', slugs: null, preview: true });
+  });
+  it('--all + --project é erro', () => {
+    expect(() => parseDevArgs(['--all', '--project', 'x'])).toThrow(/ambos/);
+  });
+  it('--projects sem valor é erro', () => {
+    expect(() => parseDevArgs(['--projects'])).toThrow(/exige/);
+  });
+  it('flag desconhecida é erro', () => {
+    expect(() => parseDevArgs(['--bogus'])).toThrow(/desconhecida/);
+  });
+});
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `npx vitest run scripts/__tests__/devArgs.test.ts`
+Expected: FAIL — `parseDevArgs is not a function` / módulo ausente.
+
+- [ ] **Step 3: Implementar** — criar `scripts/devArgs.mjs`:
+
+```js
+// Parser puro das flags do `npm run dev` multimodo. Sem efeitos colaterais.
+export function parseDevArgs(argv) {
+  let mode = 'shared';
+  const slugs = [];
+  let preview = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--all') {
+      if (mode === 'project') throw new Error('Use --all OU --project(s), não ambos.');
+      mode = 'all';
+    } else if (a === '--project' || a === '--projects') {
+      if (mode === 'all') throw new Error('Use --all OU --project(s), não ambos.');
+      const val = argv[++i];
+      if (!val || val.startsWith('--')) throw new Error(`${a} exige um slug (ex.: ${a} vendas).`);
+      for (const s of val.split(',').map((x) => x.trim()).filter(Boolean)) slugs.push(s);
+      mode = 'project';
+    } else if (a === '--preview') {
+      preview = true;
+    } else {
+      throw new Error(`Flag desconhecida: ${a}`);
+    }
+  }
+  if (mode === 'project' && slugs.length === 0) throw new Error('--project(s) exige ao menos um slug.');
+  return { mode, slugs: mode === 'project' ? slugs : null, preview };
+}
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `npx vitest run scripts/__tests__/devArgs.test.ts`
+Expected: PASS (8 testes).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/devArgs.mjs scripts/__tests__/devArgs.test.ts
+git commit -m "feat(ports): parseDevArgs — parser das flags do dev multimodo"
+```
+
+### Task 2.2: `resolveSlugs(parsed, registry)` — resolver puro
+
+**Files:**
+- Modify: `scripts/devArgs.mjs` (adicionar export)
+- Test: `scripts/__tests__/devArgs.test.ts`
+
+**Interfaces:**
+- Consumes: o objeto de `parseDevArgs` e um `registry` no formato `{ projects: { slug: string }[] }`.
+- Produces: `resolveSlugs(parsed, registry): string[] | null`. `shared` → `null`; `all` →
+  todos os slugs; `project` → os slugs pedidos, **lançando** se algum não existir (mensagem
+  lista os disponíveis).
+
+- [ ] **Step 1: Teste que falha** — acrescentar ao arquivo de teste:
+
+```ts
+import { parseDevArgs, resolveSlugs } from '../devArgs.mjs';
+
+const REG = { projects: [{ slug: 'alpha' }, { slug: 'beta' }] };
+
+describe('resolveSlugs', () => {
+  it('shared → null', () => {
+    expect(resolveSlugs(parseDevArgs([]), REG)).toBeNull();
+  });
+  it('all → todos os slugs', () => {
+    expect(resolveSlugs(parseDevArgs(['--all']), REG)).toEqual(['alpha', 'beta']);
+  });
+  it('project existente', () => {
+    expect(resolveSlugs(parseDevArgs(['--project', 'beta']), REG)).toEqual(['beta']);
+  });
+  it('project inexistente lança listando disponíveis', () => {
+    expect(() => resolveSlugs(parseDevArgs(['--project', 'nope']), REG)).toThrow(/alpha, beta/);
+  });
+});
+```
+
+> Ajuste o `import` no topo do arquivo de teste para incluir `resolveSlugs`.
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `npx vitest run scripts/__tests__/devArgs.test.ts`
+Expected: FAIL — `resolveSlugs is not a function`.
+
+- [ ] **Step 3: Implementar** — adicionar a `scripts/devArgs.mjs`:
+
+```js
+export function resolveSlugs(parsed, registry) {
+  const available = registry.projects.map((p) => p.slug);
+  if (parsed.mode === 'shared') return null;
+  if (parsed.mode === 'all') {
+    if (available.length === 0) throw new Error('Nenhum projeto no registry.');
+    return available;
+  }
+  const missing = parsed.slugs.filter((s) => !available.includes(s));
+  if (missing.length) {
+    throw new Error(
+      `Slug(s) inexistente(s): ${missing.join(', ')}. Disponíveis: ${available.join(', ') || '(nenhum)'}`,
+    );
+  }
+  return parsed.slugs;
+}
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `npx vitest run scripts/__tests__/devArgs.test.ts`
+Expected: PASS (12 testes no total).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/devArgs.mjs scripts/__tests__/devArgs.test.ts
+git commit -m "feat(ports): resolveSlugs — valida slugs contra o registry"
+```
+
+### Task 2.0: Validação do pin no boot (`server/index.ts`)
+
+**Files:**
+- Modify: `server/index.ts` (`main()`)
+
+**Interfaces:**
+- Consumes: `pinnedSlug()` de `./files.ts` (já existe; lança se `LOCALDRAWDB_PROJECT` inválido).
+
+Sem teste unitário novo (o lançamento de `pinnedSlug` já é coberto por
+`server/__tests__/pinnedProject.test.ts`). Deliverable verificado por smoke do controller.
+
+- [ ] **Step 1: Implementar** — em `server/index.ts`, importar `pinnedSlug` de `./files.ts`
+  e, dentro de `main()`, logo após `await migrateLegacy();`, adicionar:
+
+```ts
+  // Falha cedo se LOCALDRAWDB_PROJECT apontar para um projeto inexistente.
+  await pinnedSlug();
+```
+
+- [ ] **Step 2: Smoke (controller)** — `LOCALDRAWDB_PROJECT=nao-existe npm start` deve sair
+  com código ≠ 0 e mensagem clara; `npm start` normal sobe igual a hoje. Rodar `npm run typecheck`.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add server/index.ts
+git commit -m "feat(ports): valida LOCALDRAWDB_PROJECT no boot do servidor"
+```
+
+### Task 2.3: `dev.mjs` multimodo (orquestração)
+
+**Files:**
+- Modify: `scripts/dev.mjs`
+
+**Interfaces:**
+- Consumes: `parseDevArgs`/`resolveSlugs` (`./devArgs.mjs`), `allocateDevPorts`/`waitForPort`
+  (`./devPorts.mjs`).
+
+Integração de processos — não unit-testável. Deliverable verificado por smoke do controller
+(subir `--projects alpha,beta` em data dir isolado, checar dois `web` respondendo, encerrar).
+
+- [ ] **Step 1: Refatorar para multimodo.** Reescrever `scripts/dev.mjs` mantendo o caminho
+  `shared` idêntico ao atual. Estrutura:
+  - `parseDevArgs(process.argv.slice(2))`; se `preview` → `console.error('modo --preview chega na F4')` + `process.exit(1)`.
+  - **Extrair** `startInstance({ slug, apiPort, webPort })` que faz o spawn atual de
+    `tsx watch server/index.ts` + (após `waitForPort`) `vite --port <web> --strictPort`,
+    com env `{ ...process.env, PORT, API_PORT, VITE_PORT, ...(slug ? { LOCALDRAWDB_PROJECT: slug } : {}) }`,
+    e retorna `{ server, web }`.
+  - **Modo `shared`** (`slugs === null` após `resolveSlugs`): `allocateDevPorts()` → uma
+    instância sem slug; saída e `.localdrawdb-dev.json` no formato de hoje
+    (`{ apiPort, webPort, root }`) **OU** já no formato novo (ver Step 2). Manter a saída
+    de uma linha por URL como hoje.
+  - **Modo multi** (`slugs` é array): ler o registry de
+    `path.join(process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data'), 'projects.json')`,
+    `resolveSlugs(parsed, registry)`; para cada slug, `allocateDevPorts()` e `startInstance`;
+    imprimir tabela `projeto | web | api`.
+  - **Supervisão:** coletar todos os filhos; `SIGINT/SIGTERM` mata todos e remove o meta;
+    qualquer filho com exit ≠ 0 derruba o conjunto (como hoje, generalizado para N).
+
+- [ ] **Step 2: `.localdrawdb-dev.json` array.** Gravar
+  `{ instances: [{ slug, apiPort, webPort }], root }` (no modo `shared`, `slug: null`).
+  Se algum leitor do formato antigo existir, atualizar no mesmo commit (grep
+  `localdrawdb-dev` no repo).
+
+- [ ] **Step 3: Smoke (controller).** Em data dir isolado com 2 projetos:
+  `LOCALDRAWDB_DATA_DIR=/tmp/xxx npm run dev -- --projects alpha,beta` → tabela com 2 linhas,
+  dois `web` respondendo (curl), Ctrl-C encerra ambos e some o meta. `npm run dev` puro =
+  comportamento de hoje.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add scripts/dev.mjs
+git commit -m "feat(ports): dev.mjs multimodo (--project/--projects/--all)"
+```
 
 ## FASE 3 — Frontend fixado
 
