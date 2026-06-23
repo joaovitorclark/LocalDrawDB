@@ -20,10 +20,14 @@ Nenhum banco, nenhum Docker.
 
 ```bash
 npm install
-npm run dev        # portas livres por clone (web + API pareadas automaticamente)
-# o terminal mostra a URL web e o path do projeto
-# segundo clone: npm run dev de novo — usa outras portas, data/input/ proprio
+npm run dev          # sobe TODOS os projetos, cada um na sua porta (o terminal lista as URLs)
+npm run dev:shared   # 1 instância única servindo todos, com o seletor de projeto na UI
+# Ctrl-C encerra todas as instâncias do conjunto
 ```
+
+> `npm run dev` sem argumentos abre **um servidor por projeto** (cada um numa porta). Para
+> rodar **só alguns**, passe os slugs (ver abaixo); para a **instância única** de antes, use
+> `npm run dev:shared` (ou `./ldb --shared`).
 
 Produção (um processo serve UI + API):
 
@@ -34,28 +38,28 @@ npm start          # http://localhost:5174
 
 ### Rodar projetos em portas isoladas
 
-Por padrão, uma instância serve **todos** os projetos e você troca pelo seletor da UI.
-Para abrir **vários projetos ao mesmo tempo** (cada um na sua porta) ou **fixar** uma
-instância num projeto — útil para comparar lado a lado e **controlar o consumo de memória** —
-use o atalho **`./ldb`** (estilo `uv run`, sem o `--` do npm):
+**Sem argumentos, sobe todos os projetos** (cada um na sua porta) — para comparar lado a
+lado e **controlar o consumo de memória**. Use o atalho **`./ldb`** (estilo `uv run`, sem o
+`--` do npm):
 
 ```bash
+./ldb                    # TODOS os projetos, 1 por porta (default)
 ./ldb --list             # lista os projetos (slug + nome)
-./ldb lakehouse          # fixa 1 projeto (casa por substring única do slug)
-./ldb vendas rh          # vários projetos, cada um na sua porta
-./ldb --all              # 1 instância por projeto
-./ldb --all --preview    # idem, build estático (leve, sem Vite)
-./ldb                    # modo compartilhado (todos, 1 instância) — igual a `npm run dev`
+./ldb lakehouse          # só 1 projeto (casa por substring única do slug)
+./ldb vendas rh          # só esses, cada um na sua porta
+./ldb --all --preview    # todos, build estático (leve, sem Vite)
+./ldb --shared           # instância única servindo todos (com o seletor de projeto)
 ```
 
-Sem o atalho, via npm (precisa do `--` para repassar argumentos):
+Sem o atalho, via npm (precisa do `--` para repassar slugs/flags):
 
 ```bash
+npm run dev                        # = ./ldb  (todos)
 npm run list                       # = ./ldb --list
-npm run dev:all                    # = ./ldb --all
+npm run dev:shared                 # = ./ldb --shared
 npm run preview:all                # = ./ldb --all --preview
-npm run dev -- lakehouse           # slug posicional
-npm run dev -- --project vendas    # forma com flag (equivalente)
+npm run dev -- lakehouse           # só 1 projeto (slug posicional)
+npm run dev -- vendas rh           # só esses
 ```
 
 - O argumento é o **slug** do projeto (`./ldb --list` mostra todos). Aceita **substring única**

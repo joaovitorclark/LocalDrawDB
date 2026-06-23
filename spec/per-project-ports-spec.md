@@ -1,7 +1,12 @@
 # Per-project ports — rodar projetos em portas isoladas (`npm run dev` multimodo)
 
-> **Restrição inegociável:** `npm run dev` **sem flags** permanece idêntico ao de hoje
-> (uma instância compartilhada, seletor de projeto na UI funcionando). Feature
+> **Atualização pós-merge (decisão do dono):** o default mudou — `npm run dev` **sem flags**
+> agora sobe **todos os projetos** (um por porta). A instância única compartilhada continua
+> disponível via `--shared` (`npm run dev:shared` / `./ldb --shared`). A AC1 abaixo descreve
+> o design original; o comportamento atual está no README.
+
+> **Restrição inegociável (design original):** `npm run dev` **sem flags** permanece idêntico
+> ao de hoje (uma instância compartilhada, seletor de projeto na UI funcionando). Feature
 > **aditiva**, suíte de testes verde, zero regressão no servidor/rotas atuais.
 
 ## Problema

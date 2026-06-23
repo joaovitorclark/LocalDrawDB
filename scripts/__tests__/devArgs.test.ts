@@ -2,8 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { parseDevArgs, resolveSlugs } from '../devArgs.mjs';
 
 describe('parseDevArgs', () => {
-  it('sem flags = shared', () => {
-    expect(parseDevArgs([])).toEqual({ mode: 'shared', slugs: null, preview: false });
+  it('sem flags = todos os projetos (all)', () => {
+    expect(parseDevArgs([])).toEqual({ mode: 'all', slugs: null, preview: false });
+  });
+  it('--shared = instância única compartilhada', () => {
+    expect(parseDevArgs(['--shared'])).toEqual({ mode: 'shared', slugs: null, preview: false });
+  });
+  it('--shared + --preview', () => {
+    expect(parseDevArgs(['--shared', '--preview'])).toEqual({ mode: 'shared', slugs: null, preview: true });
+  });
+  it('--shared + slug é erro', () => {
+    expect(() => parseDevArgs(['--shared', 'vendas'])).toThrow(/ambos/);
   });
   it('--project x', () => {
     expect(parseDevArgs(['--project', 'vendas'])).toEqual({ mode: 'project', slugs: ['vendas'], preview: false });
@@ -52,8 +61,11 @@ describe('parseDevArgs', () => {
 const REG = { projects: [{ slug: 'alpha' }, { slug: 'beta' }] };
 
 describe('resolveSlugs', () => {
-  it('shared → null', () => {
-    expect(resolveSlugs(parseDevArgs([]), REG)).toBeNull();
+  it('--shared → null (instância única)', () => {
+    expect(resolveSlugs(parseDevArgs(['--shared']), REG)).toBeNull();
+  });
+  it('sem flags (default) → todos os slugs', () => {
+    expect(resolveSlugs(parseDevArgs([]), REG)).toEqual(['alpha', 'beta']);
   });
   it('all → todos os slugs', () => {
     expect(resolveSlugs(parseDevArgs(['--all']), REG)).toEqual(['alpha', 'beta']);
@@ -90,5 +102,11 @@ describe('resolveSlugs — match por substring', () => {
   });
   it('list → null', () => {
     expect(resolveSlugs(parseDevArgs(['--list']), REG3)).toBeNull();
+  });
+  it('deduplica termos que resolvem para o mesmo projeto', () => {
+    // "vendas" é substring de "exemplo-vendas-e-commerce" → não deve subir o mesmo projeto 2×
+    expect(resolveSlugs(parseDevArgs(['exemplo-vendas-e-commerce', 'vendas']), REG3)).toEqual([
+      'exemplo-vendas-e-commerce',
+    ]);
   });
 });
