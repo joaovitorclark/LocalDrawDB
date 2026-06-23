@@ -307,6 +307,7 @@ export async function duplicateProject(id: string, newName?: string): Promise<Pr
 }
 
 export async function setActiveProject(id: string): Promise<void> {
+  if (await pinnedSlug()) return; // instância fixada não persiste activeId compartilhado
   const reg = await readRegistry();
   if (!reg.projects.find((p) => p.id === id)) {
     throw new Error(`Projeto não encontrado: ${id}`);
