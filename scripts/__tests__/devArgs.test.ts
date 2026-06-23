@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDevArgs } from '../devArgs.mjs';
+import { parseDevArgs, resolveSlugs } from '../devArgs.mjs';
 
 describe('parseDevArgs', () => {
   it('sem flags = shared', () => {
@@ -28,5 +28,22 @@ describe('parseDevArgs', () => {
   });
   it('--projects seguido de outra flag é erro', () => {
     expect(() => parseDevArgs(['--projects', '--all'])).toThrow(/exige/);
+  });
+});
+
+const REG = { projects: [{ slug: 'alpha' }, { slug: 'beta' }] };
+
+describe('resolveSlugs', () => {
+  it('shared → null', () => {
+    expect(resolveSlugs(parseDevArgs([]), REG)).toBeNull();
+  });
+  it('all → todos os slugs', () => {
+    expect(resolveSlugs(parseDevArgs(['--all']), REG)).toEqual(['alpha', 'beta']);
+  });
+  it('project existente', () => {
+    expect(resolveSlugs(parseDevArgs(['--project', 'beta']), REG)).toEqual(['beta']);
+  });
+  it('project inexistente lança listando disponíveis', () => {
+    expect(() => resolveSlugs(parseDevArgs(['--project', 'nope']), REG)).toThrow(/alpha, beta/);
   });
 });

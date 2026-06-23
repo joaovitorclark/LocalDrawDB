@@ -23,3 +23,19 @@ export function parseDevArgs(argv) {
   if (mode === 'project' && slugs.length === 0) throw new Error('--project(s) exige ao menos um slug.');
   return { mode, slugs: mode === 'project' ? slugs : null, preview };
 }
+
+export function resolveSlugs(parsed, registry) {
+  const available = registry.projects.map((p) => p.slug);
+  if (parsed.mode === 'shared') return null;
+  if (parsed.mode === 'all') {
+    if (available.length === 0) throw new Error('Nenhum projeto no registry.');
+    return available;
+  }
+  const missing = parsed.slugs.filter((s) => !available.includes(s));
+  if (missing.length) {
+    throw new Error(
+      `Slug(s) inexistente(s): ${missing.join(', ')}. Disponíveis: ${available.join(', ') || '(nenhum)'}`,
+    );
+  }
+  return parsed.slugs;
+}
