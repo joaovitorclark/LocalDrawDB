@@ -315,8 +315,24 @@ export async function setActiveProject(id: string): Promise<void> {
   await writeRegistry(reg);
 }
 
+/** Slug fixado por processo (LOCALDRAWDB_PROJECT), validado, ou null. */
+export async function pinnedSlug(): Promise<string | null> {
+  const slug = process.env.LOCALDRAWDB_PROJECT?.trim();
+  if (!slug) return null;
+  const reg = await readRegistry();
+  if (!reg.projects.some((p) => p.slug === slug)) {
+    throw new Error(`LOCALDRAWDB_PROJECT="${slug}" não existe no registry`);
+  }
+  return slug;
+}
+
 export async function getActiveId(): Promise<string> {
   const reg = await readRegistry();
+  const pin = await pinnedSlug();
+  if (pin) {
+    const proj = reg.projects.find((p) => p.slug === pin);
+    if (proj) return proj.id;
+  }
   return reg.activeId;
 }
 
@@ -332,10 +348,11 @@ export async function getProject(id: string): Promise<ProjectMeta> {
 // Helpers internos: resolve slug do projeto ativo
 // ──────────────────────────────────────────────────────────────
 export async function getActiveSlug(): Promise<string> {
+  const pin = await pinnedSlug();
+  if (pin) return pin;
   const reg = await readRegistry();
   const proj = reg.projects.find((p) => p.id === reg.activeId);
   if (!proj) {
-    // Fallback: usa o primeiro projeto disponível
     if (reg.projects.length > 0) return reg.projects[0].slug;
     throw new Error('Nenhum projeto ativo. Execute migrateLegacy() primeiro.');
   }
