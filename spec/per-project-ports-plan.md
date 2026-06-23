@@ -797,15 +797,91 @@ git commit -m "test(ports): verificação no navegador da UI fixada"
 
 ## FASE 4 — Modo `--preview` (alavanca de memória)
 
-> Detalhar ao iniciar a fase. Esboço:
+Detalhamento bite-sized. Em `--preview`, cada projeto sobe **só** um Fastify de produção
+(`NODE_ENV=production tsx server/index.ts`), que serve `dist/` (UI) **e** `/api` na **mesma
+porta** — sem Vite, sem watch. Logo, preview precisa de **1 porta por instância** (não um
+par). Arquivos: `scripts/dev.mjs`. Verificação: smoke do controller (sem teste unitário —
+orquestração de processos). Ordem: 4.1 implementação → 4.2 smoke.
 
-- **Task 4.1 — Build único:** no `dev.mjs`, com `--preview`, rodar `vite build` uma vez
-  antes do fan-out (ou reusar `dist/` existente).
-- **Task 4.2 — Spawn estático por slug:** spawnar **só** o Fastify
-  (`NODE_ENV=production tsx server/index.ts`, que já serve `dist/` via `@fastify/static`)
-  com `LOCALDRAWDB_PROJECT` e `PORT`. Sem Vite.
-- **Task 4.3 — Smoke:** `--all --preview` em data dir isolado sobe N Fastify estáticos;
-  nenhum processo Vite no conjunto.
+### Task 4.1: Implementar `--preview` no `dev.mjs`
+
+**Files:**
+- Modify: `scripts/dev.mjs`
+
+**Interfaces:**
+- Consumes: `findFreePort` (`./devPorts.mjs`, já exportado), `parseDevArgs`/`resolveSlugs`
+  (`./devArgs.mjs`), `waitForPort`.
+
+- [ ] **Step 1: Substituir o stub de preview pela implementação.** Hoje o `dev.mjs` tem:
+  ```js
+  if (parsed.preview) {
+    console.error('modo --preview chega na F4');
+    process.exit(1);
+  }
+  ```
+  Trocar por um caminho de preview que:
+  - **Build único:** se `dist/index.html` não existir, rodar `vite build` uma vez
+    (spawn `VITE_CLI build`, `stdio: 'inherit'`, aguardar exit; abortar se ≠ 0). Se já
+    existir, imprimir "(reusando dist/ existente)".
+  - **Resolver alvos:** `shared` → uma instância sem slug (`[null]`); senão, ler o registry
+    de `path.join(process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data'), 'projects.json')`
+    e `resolveSlugs(parsed, registry)`.
+  - **Portas:** 1 porta livre por instância, acumulando exclusões:
+    ```js
+    import { findFreePort } from './devPorts.mjs';
+    const used = new Set();
+    // por instância:
+    const port = await findFreePort(Number(process.env.PORT) || 5174, '127.0.0.1', used);
+    used.add(port);
+    ```
+  - **Spawn estático:** helper `startPreviewInstance({ slug, port })`:
+    ```js
+    function startPreviewInstance({ slug, port }) {
+      const env = {
+        ...process.env,
+        NODE_ENV: 'production',
+        PORT: String(port),
+        ...(slug ? { LOCALDRAWDB_PROJECT: slug } : {}),
+      };
+      const server = spawn(process.execPath, [TSX_CLI, 'server/index.ts'], {
+        cwd: ROOT, env, stdio: 'inherit',
+      });
+      return { server, web: null }; // sem Vite no preview
+    }
+    ```
+  - **Meta + tabela:** `.localdrawdb-dev.json` =
+    `{ instances: [{ slug, apiPort: port, webPort: port, preview: true }], root }`. Imprimir
+    tabela `projeto | url` com `http://127.0.0.1:<port>`.
+  - **Supervisão:** reusar `instances`/`shutdown`/`supervise`. Como `web` pode ser `null` no
+    preview, o `shutdown` e o `supervise` devem tratar `web == null` (só matar/observar o
+    `server`). Ajustar:
+    ```js
+    // shutdown:
+    for (const { server, web } of instances) { server.kill('SIGTERM'); web?.kill('SIGTERM'); }
+    // supervise:
+    handle.server.on('exit', (code) => { if (code && code !== 0) shutdown(code); });
+    if (handle.web) handle.web.on('exit', (code) => { if (code && code !== 0) shutdown(code); });
+    ```
+  - O caminho **dev** (sem `--preview`) permanece exatamente como na F2.
+
+- [ ] **Step 2: Sanity (sem hang).** `node scripts/dev.mjs --preview --projects <inexistente>`
+  → exit ≠ 0 com "Slug(s) inexistente(s)" (resolveSlugs falha antes de buildar/spawnar).
+  `npm run typecheck` limpo; `npm test` verde (nada de servidor mudou).
+  **Não** rodar `--preview` com slug real (spawna servidor que fica vivo) — é o smoke do controller.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add scripts/dev.mjs
+git commit -m "feat(ports): modo --preview (Fastify estático por projeto, sem Vite)"
+```
+
+### Task 4.2: Smoke do controller
+
+- [ ] **Step 1:** Em data dir isolado com 2 projetos, `--projects a,b --preview`:
+  build roda 1×; sobem 2 Fastify de produção em portas distintas; **nenhum processo Vite**
+  no conjunto (`pgrep -f vite` vazio entre os filhos); cada porta serve a UI (`GET /` → HTML)
+  e `/api/meta` com o `pinnedProject` certo; Ctrl-C encerra todos e remove o meta.
 
 ---
 
