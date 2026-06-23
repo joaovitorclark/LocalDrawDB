@@ -429,6 +429,11 @@ protegida. `npm run dev` atual continua intacto (nenhum env setado).
   `tsx watch server/index.ts` + `vite --port <web> --strictPort` com env
   `{ ...process.env, LOCALDRAWDB_PROJECT: slug, PORT, VITE_PORT, API_PORT }`. Aguardar
   `waitForPort(apiPort)` antes do Vite (como hoje).
+- **Task 2.0 — Validação do pin no boot (recomendação da review final da F1):** hoje
+  `pinnedSlug()` valida e lança, mas nada o chama no boot — um `LOCALDRAWDB_PROJECT`
+  inválido só falha na 1ª requisição (como 500). A F2 deve chamar `pinnedSlug()` (ou um
+  check equivalente) no startup em `server/index.ts` para falhar cedo e com mensagem clara,
+  cumprindo a promessa da spec ("instância não sobe silenciosamente no projeto errado").
 - **Task 2.4 — Meta multi + supervisão:** `.localdrawdb-dev.json` vira
   `{ instances: [{ slug, apiPort, webPort }], root }` (modo `shared` = 1 instância sem
   slug, retrocompat de leitura). `SIGINT/SIGTERM` mata todos os filhos e remove o meta;
