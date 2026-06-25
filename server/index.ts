@@ -4,15 +4,16 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { registerRoutes } from './routes.ts';
-import { ROOT, migrateLegacy, pinnedSlug } from './files.ts';
+import { ROOT, ensureRegistry, pinnedSlug } from './files.ts';
 
 const APP_ROOT = ROOT;
 const PORT = Number(process.env.PORT ?? 5174);
 const isProd = process.env.NODE_ENV === 'production';
 
 async function main() {
-  // Migração única: cria estrutura multi-projeto a partir de instalação legada.
-  await migrateLegacy();
+  // Garante o registry: migra instalação legada/limpa e reconstrói projects.json
+  // a partir das pastas em projects/ caso o arquivo tenha sido apagado.
+  await ensureRegistry();
 
   // Falha cedo se LOCALDRAWDB_PROJECT apontar para um projeto inexistente.
   await pinnedSlug();

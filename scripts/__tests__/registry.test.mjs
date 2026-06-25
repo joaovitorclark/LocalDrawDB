@@ -33,6 +33,21 @@ describe('loadRegistry — bootstrap quando ausente', () => {
   });
 });
 
+describe('loadRegistry — registry apagado com projetos no disco', () => {
+  it('reconstrói projects.json mapeando as pastas de projects/', async () => {
+    // Cenário do usuário: projects.json apagado, mas data/projects/ tem projetos.
+    await fs.mkdir(path.join(tmpDir, 'projects', 'vendas'), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'projects', 'rh'), { recursive: true });
+
+    const registry = loadRegistry(tmpDir);
+
+    expect(registry.projects.map((p) => p.slug).sort()).toEqual(['rh', 'vendas']);
+    // Arquivo recriado no disco.
+    const onDisk = JSON.parse(await fs.readFile(path.join(tmpDir, 'projects.json'), 'utf8'));
+    expect(onDisk.projects).toHaveLength(2);
+  });
+});
+
 describe('loadRegistry — registry existente', () => {
   it('lê o registry existente sem alterá-lo', async () => {
     const existing = {

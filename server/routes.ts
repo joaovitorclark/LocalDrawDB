@@ -17,7 +17,7 @@ import {
   loadProject,
   loadProjectBySlug,
   saveProjectBySlug,
-  migrateLegacy,
+  ensureRegistry,
   readImportInputsForSlug,
   getActiveSlug,
   saveProject,
@@ -133,7 +133,7 @@ async function requirePinMatch(reply: FastifyReply, id: string): Promise<boolean
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Garante estrutura multi-projeto antes de qualquer rota ser chamada.
-  await migrateLegacy();
+  await ensureRegistry();
 
   app.get('/api/meta', async () => {
     const pin = await pinnedSlug();

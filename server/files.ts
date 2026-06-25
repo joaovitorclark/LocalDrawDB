@@ -139,6 +139,47 @@ export async function writeRegistry(reg: Registry): Promise<void> {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Garantia de registry (idempotente)
+// ──────────────────────────────────────────────────────────────
+/** Lista os slugs (subdiretórios) presentes em data/projects/. */
+async function projectSlugsOnDisk(): Promise<string[]> {
+  const entries = await fs.readdir(projectsDir(), { withFileTypes: true }).catch(() => []);
+  return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+}
+
+/**
+ * ensureRegistry(): garante que data/projects.json exista.
+ * - Registry presente: nada a fazer.
+ * - Registry ausente mas projects/<slug>/ existem no disco: reconstrói o
+ *   registry a partir das pastas (caso o arquivo tenha sido apagado).
+ * - Registry ausente e sem projetos: delega a migrateLegacy() (instalação
+ *   limpa ou legada).
+ */
+export async function ensureRegistry(): Promise<void> {
+  const regExists = await fs.stat(registryPath()).then(() => true).catch(() => false);
+  if (regExists) return;
+
+  const slugs = await projectSlugsOnDisk();
+  if (slugs.length === 0) {
+    // Sem projetos no disco: instalação limpa ou legada.
+    await migrateLegacy();
+    return;
+  }
+
+  // Registry perdido, mas há projetos no disco → reconstrói a partir das pastas.
+  // Nomes/ids originais não são recuperáveis; usamos o slug como nome.
+  const now = new Date().toISOString();
+  const projects: ProjectMeta[] = slugs.map((slug) => ({
+    id: newId(),
+    name: slug,
+    slug,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  await writeRegistry({ activeId: projects[0].id, projects });
+}
+
+// ──────────────────────────────────────────────────────────────
 // Migração legada (idempotente)
 // ──────────────────────────────────────────────────────────────
 /**
