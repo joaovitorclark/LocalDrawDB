@@ -1,10 +1,11 @@
 // Dev orchestrator: aloca portas livres por clone e liga Vite -> API do mesmo projeto.
 import { spawn } from 'node:child_process';
-import { existsSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allocateDevPorts, findFreePort, waitForPort } from './devPorts.mjs';
 import { parseDevArgs, resolveSlugs } from './devArgs.mjs';
+import { loadRegistry } from './registry.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEV_META = path.join(ROOT, '.localdrawdb-dev.json');
@@ -32,12 +33,11 @@ try {
 // --list: imprime os projetos disponíveis e sai (estilo `uv run main.py --list`).
 if (parsed.mode === 'list') {
   const dataDir = process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data');
-  const registryPath = path.join(dataDir, 'projects.json');
   let registry;
   try {
-    registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+    registry = loadRegistry(dataDir);
   } catch (err) {
-    console.error(`Não foi possível ler o registry de projetos: ${registryPath}\n${err.message}`);
+    console.error(err.message);
     process.exit(1);
   }
   const projs = registry.projects ?? [];
@@ -144,12 +144,11 @@ if (parsed.preview) {
     previewSlugs = [null];
   } else {
     const dataDir = process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data');
-    const registryPath = path.join(dataDir, 'projects.json');
     let registry;
     try {
-      registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+      registry = loadRegistry(dataDir);
     } catch (err) {
-      console.error(`Não foi possível ler o registry de projetos: ${registryPath}\n${err.message}`);
+      console.error(err.message);
       process.exit(1);
     }
     try {
@@ -236,12 +235,11 @@ if (parsed.preview) {
   } else {
     // multi or all — need to read registry
     const dataDir = process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data');
-    const registryPath = path.join(dataDir, 'projects.json');
     let registry;
     try {
-      registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+      registry = loadRegistry(dataDir);
     } catch (err) {
-      console.error(`Não foi possível ler o registry de projetos: ${registryPath}\n${err.message}`);
+      console.error(err.message);
       process.exit(1);
     }
     try {

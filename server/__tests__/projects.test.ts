@@ -96,6 +96,49 @@ describe('migrateLegacy — instalação limpa', () => {
 });
 
 // ──────────────────────────────────────────────────────────────
+// 2b. ensureRegistry — registry ausente
+// ──────────────────────────────────────────────────────────────
+describe('ensureRegistry — projects.json ausente', () => {
+  it('reconstrói o registry a partir das pastas em projects/ quando o arquivo foi apagado', async () => {
+    // Projetos existem no disco, mas projects.json foi apagado.
+    await fs.mkdir(path.join(tmpDir, 'projects', 'vendas'), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'projects', 'rh'), { recursive: true });
+
+    const { ensureRegistry, listProjects } = await importFiles();
+    await ensureRegistry();
+
+    const projects = await listProjects();
+    expect(projects.map((p) => p.slug).sort()).toEqual(['rh', 'vendas']);
+
+    // projects.json foi recriado e o activeId aponta para um projeto existente.
+    const reg = JSON.parse(await fs.readFile(path.join(tmpDir, 'projects.json'), 'utf8'));
+    expect(reg.activeId).toBeTruthy();
+    expect(reg.projects.some((p: { id: string }) => p.id === reg.activeId)).toBe(true);
+  });
+
+  it('numa instalação limpa cria o projeto default', async () => {
+    const { ensureRegistry, listProjects } = await importFiles();
+    await ensureRegistry();
+
+    const projects = await listProjects();
+    expect(projects).toHaveLength(1);
+    expect(projects[0].slug).toBe('default');
+  });
+
+  it('não sobrescreve um registry já existente', async () => {
+    const { migrateLegacy, createProject, ensureRegistry, listProjects } = await importFiles();
+    await migrateLegacy();
+    await createProject('Outro');
+
+    const before = await listProjects();
+    await ensureRegistry();
+    const after = await listProjects();
+
+    expect(after.map((p) => p.id).sort()).toEqual(before.map((p) => p.id).sort());
+  });
+});
+
+// ──────────────────────────────────────────────────────────────
 // 3. CRUD de projetos
 // ──────────────────────────────────────────────────────────────
 describe('createProject / listProjects', () => {
