@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { quoteDbmlNote, sanitizeDbmlNoteText } from '../dbmlNotes';
+import { setTableOrRecordsNote } from '../edit';
 
 describe('dbmlNotes', () => {
   it('escapa aspas simples', () => {
@@ -17,5 +18,13 @@ describe('dbmlNotes', () => {
 
   it('preserva ponto-e-vírgula no texto', () => {
     expect(quoteDbmlNote('valor; interno')).toBe("'valor; interno'");
+  });
+});
+
+describe('setTableOrRecordsNote — preserva texto com espaços', () => {
+  it('grava nota multi-palavra na Table', () => {
+    const src = 'Table clientes {\n  id int\n}';
+    const out = setTableOrRecordsNote(src, 'clientes', 'dimensão de clientes');
+    expect(out).toContain("Note: 'dimensão de clientes'");
   });
 });
