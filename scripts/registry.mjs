@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TSX_CLI = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const ENSURE_REGISTRY = path.join(ROOT, 'scripts', 'ensureRegistry.ts');
+const CREATE_PROJECT = path.join(ROOT, 'scripts', 'createProject.ts');
 
 /**
  * Lê o registry de projetos de `dataDir`, criando-o se ausente.
@@ -41,4 +42,27 @@ export function loadRegistry(dataDir, opts = {}) {
   }
 
   return JSON.parse(readFileSync(registryPath, 'utf8'));
+}
+
+/**
+ * Cria um projeto via CLI, reusando createProject() de files.ts (tsx).
+ * @param {string} name
+ * @param {string} [dataDir] Diretório de dados (default: env ou data/).
+ * @param {{ tsxCli?: string, createScript?: string }} [opts]
+ */
+export function createProjectCli(name, dataDir = process.env.LOCALDRAWDB_DATA_DIR, opts = {}) {
+  const tsxCli = opts.tsxCli ?? TSX_CLI;
+  const script = opts.createScript ?? CREATE_PROJECT;
+  const env = { ...process.env };
+  if (dataDir) env.LOCALDRAWDB_DATA_DIR = dataDir;
+  const res = spawnSync(process.execPath, [tsxCli, script, name], {
+    cwd: ROOT,
+    env,
+    stdio: 'inherit',
+  });
+  if (res.status !== 0) {
+    throw new Error(
+      `Falha ao criar projeto "${name}"` + (res.error ? `\n${res.error.message}` : ''),
+    );
+  }
 }
