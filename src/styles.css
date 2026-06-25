@@ -24,6 +24,9 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* Impede o rubber-band do macOS de revelar o fundo escuro do body quando a
+     rolagem de um painel interno encadeia até o documento (faixa preta). */
+  overscroll-behavior: none;
 }
 
 body {
@@ -382,6 +385,8 @@ body {
 /* F4: rolagem confiável (vertical + horizontal) dentro do painel */
 .editor .cm-scroller {
   overflow: auto;
+  /* Não encadeia a rolagem para o documento ao chegar no fim do editor. */
+  overscroll-behavior: contain;
 }
 .editor__error {
   display: block;
