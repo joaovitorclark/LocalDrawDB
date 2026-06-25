@@ -157,7 +157,10 @@ async function projectSlugsOnDisk(): Promise<string[]> {
  */
 export async function ensureRegistry(): Promise<void> {
   const regExists = await fs.stat(registryPath()).then(() => true).catch(() => false);
-  if (regExists) return;
+  if (regExists) {
+    await syncRegistryWithDisk();
+    return;
+  }
 
   const slugs = await projectSlugsOnDisk();
   if (slugs.length === 0) {
@@ -177,6 +180,29 @@ export async function ensureRegistry(): Promise<void> {
     updatedAt: now,
   }));
   await writeRegistry({ activeId: projects[0].id, projects });
+}
+
+/**
+ * syncRegistryWithDisk(): add-only. Adiciona ao registry toda pasta de
+ * projects/ sem entrada correspondente. Nunca remove. Retorna os slugs
+ * adicionados.
+ */
+export async function syncRegistryWithDisk(): Promise<string[]> {
+  const reg = await readRegistry();
+  const known = new Set(reg.projects.map((p) => p.slug));
+  const slugs = await projectSlugsOnDisk();
+  const added: string[] = [];
+  const now = new Date().toISOString();
+  for (const slug of slugs) {
+    if (known.has(slug)) continue;
+    reg.projects.push({ id: newId(), name: slug, slug, createdAt: now, updatedAt: now });
+    added.push(slug);
+  }
+  if (added.length) {
+    if (!reg.activeId) reg.activeId = reg.projects[0].id;
+    await writeRegistry(reg);
+  }
+  return added;
 }
 
 // ──────────────────────────────────────────────────────────────
