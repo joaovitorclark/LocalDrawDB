@@ -48,6 +48,21 @@ describe('loadRegistry — registry apagado com projetos no disco', () => {
   });
 });
 
+describe('loadRegistry — mapeia pasta criada manualmente', () => {
+  it('inclui no registry pasta criada à mão quando o registry já existe', async () => {
+    // Bootstrap do registry (cria projeto "default").
+    loadRegistry(tmpDir);
+
+    // Cria pasta manualmente, sem passar pelo createProject.
+    await fs.mkdir(path.join(tmpDir, 'projects', 'manual-dir'), { recursive: true });
+
+    // Segunda chamada deve sincronizar e mapear a nova pasta.
+    const registry = loadRegistry(tmpDir);
+
+    expect(registry.projects.map((p) => p.slug)).toContain('manual-dir');
+  });
+});
+
 describe('loadRegistry — registry existente', () => {
   it('lê o registry existente sem alterá-lo', async () => {
     const existing = {

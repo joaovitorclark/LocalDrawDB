@@ -6,7 +6,7 @@
 // o arquivo ainda não existe. Em vez de falhar, fazemos o bootstrap reusando a
 // migração canônica de server/files.ts (via tsx), garantindo a mesma lógica
 // (incluindo migração de instalações legadas) e então lemos o arquivo.
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,18 +27,18 @@ export function loadRegistry(dataDir, opts = {}) {
   const ensureScript = opts.ensureScript ?? ENSURE_REGISTRY;
   const registryPath = path.join(dataDir, 'projects.json');
 
-  if (!existsSync(registryPath)) {
-    const res = spawnSync(process.execPath, [tsxCli, ensureScript], {
-      cwd: ROOT,
-      env: { ...process.env, LOCALDRAWDB_DATA_DIR: dataDir },
-      stdio: 'inherit',
-    });
-    if (res.status !== 0) {
-      throw new Error(
-        `Falha ao inicializar o registry de projetos em ${registryPath}` +
-          (res.error ? `\n${res.error.message}` : ''),
-      );
-    }
+  // Sempre executa ensureRegistry para sincronizar pastas criadas manualmente.
+  // A função é idempotente: só grava quando há mudanças (e.g. nova pasta em projects/).
+  const res = spawnSync(process.execPath, [tsxCli, ensureScript], {
+    cwd: ROOT,
+    env: { ...process.env, LOCALDRAWDB_DATA_DIR: dataDir },
+    stdio: 'inherit',
+  });
+  if (res.status !== 0) {
+    throw new Error(
+      `Falha ao inicializar o registry de projetos em ${registryPath}` +
+        (res.error ? `\n${res.error.message}` : ''),
+    );
   }
 
   return JSON.parse(readFileSync(registryPath, 'utf8'));
