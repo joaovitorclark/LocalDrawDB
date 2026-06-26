@@ -16,6 +16,7 @@
     "dev:shared": "node scripts/dev.mjs --shared",
     "dev:all": "node scripts/dev.mjs --all",
     "preview:all": "node scripts/dev.mjs --all --preview",
+    "new": "node scripts/newProject.mjs",
     "list": "node scripts/dev.mjs --list",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",

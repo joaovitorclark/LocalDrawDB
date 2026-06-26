@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ParsedRecords } from '../dsl/records';
 import { getColumnSettings, setColumnSetting, setTableOrRecordsNote } from '../dsl/edit';
 import { useInteraction } from '../store/interaction';
@@ -22,15 +22,29 @@ function NoteField({
   placeholder: string;
   onChange: (value: string) => void;
 }) {
+  const [draft, setDraft] = useState(value);
+  const [focused, setFocused] = useState(false);
+
+  // Sincroniza com o valor externo (ex.: troca de tabela) só quando não está
+  // focado — evita derrubar o que o usuário está digitando.
+  useEffect(() => {
+    if (!focused) setDraft(value);
+  }, [value, focused]);
+
   return (
     <label className="records-note-field">
       <span className="records-note-field__label">{label}</span>
       <textarea
         className="records-note-field__input"
-        value={value}
+        value={draft}
         placeholder={placeholder}
         rows={2}
-        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setFocused(false);
+          if (draft !== value) onChange(draft);
+        }}
       />
     </label>
   );

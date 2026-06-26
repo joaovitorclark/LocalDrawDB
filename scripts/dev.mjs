@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allocateDevPorts, findFreePort, waitForPort } from './devPorts.mjs';
 import { parseDevArgs, resolveSlugs } from './devArgs.mjs';
-import { loadRegistry } from './registry.mjs';
+import { loadRegistry, createProjectCli } from './registry.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEV_META = path.join(ROOT, '.localdrawdb-dev.json');
@@ -20,6 +20,23 @@ function requireDeps() {
 }
 
 requireDeps();
+
+// Subcomando `new <nome>`: cria projeto e sai (não sobe servidor).
+if (process.argv[2] === 'new') {
+  const name = process.argv.slice(3).join(' ').trim();
+  if (!name) {
+    console.error('Uso: ./ldb new <nome>');
+    process.exit(1);
+  }
+  const dataDir = process.env.LOCALDRAWDB_DATA_DIR ?? path.join(ROOT, 'data');
+  try {
+    createProjectCli(name, dataDir);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 // Parse args — exits fast on error
 let parsed;

@@ -348,3 +348,37 @@ describe('wrapper writeOutput', () => {
     expect(path.isAbsolute(relPath)).toBe(false);
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// 6. syncRegistryWithDisk — pastas criadas na mão
+// ──────────────────────────────────────────────────────────────
+describe('syncRegistryWithDisk — pastas criadas na mão', () => {
+  it('adiciona ao registry pastas novas em projects/ (registry presente)', async () => {
+    const { migrateLegacy, syncRegistryWithDisk, listProjects } = await importFiles();
+    await migrateLegacy(); // cria default + projects.json
+    await fs.mkdir(path.join(tmpDir, 'projects', 'vendas'), { recursive: true });
+
+    const added = await syncRegistryWithDisk();
+    expect(added).toEqual(['vendas']);
+
+    const slugs = (await listProjects()).map((p) => p.slug).sort();
+    expect(slugs).toEqual(['default', 'vendas']);
+  });
+
+  it('é idempotente quando nada novo no disco', async () => {
+    const { migrateLegacy, syncRegistryWithDisk } = await importFiles();
+    await migrateLegacy();
+    expect(await syncRegistryWithDisk()).toEqual([]);
+  });
+
+  it('ensureRegistry com registry presente também faz o sync', async () => {
+    const { migrateLegacy, ensureRegistry, listProjects } = await importFiles();
+    await migrateLegacy();
+    await fs.mkdir(path.join(tmpDir, 'projects', 'rh'), { recursive: true });
+
+    await ensureRegistry();
+
+    const slugs = (await listProjects()).map((p) => p.slug).sort();
+    expect(slugs).toEqual(['default', 'rh']);
+  });
+});

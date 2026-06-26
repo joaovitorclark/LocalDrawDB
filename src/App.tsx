@@ -36,6 +36,7 @@ import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from 
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
 import { ExportMenu } from './ExportMenu';
 import { ProjectSwitcher } from './ProjectSwitcher';
+import { pinnedCreatedMessage } from './projectMessages';
 import { exportInputL2Warning } from './exportWarnings';
 import * as api from './api';
 import type { CanvasPage, LineageLink, ProjectMeta } from './api';
@@ -1047,6 +1048,12 @@ export default function App() {
     async (name: string) => {
       try {
         await api.createProject(name);
+        if (pinnedProjectId) {
+          // Instância fixada: não troca; apenas avisa e atualiza a lista.
+          await refreshProjects();
+          setStatus(pinnedCreatedMessage(name));
+          return;
+        }
         const { activeId, projects: list } = await api.listProjects();
         setProjects(list);
         // Troca automaticamente para o novo projeto
@@ -1055,7 +1062,7 @@ export default function App() {
         setStatus(`Erro ao criar projeto: ${(e as Error)?.message ?? e}`);
       }
     },
-    [currentProjectId, switchProject],
+    [currentProjectId, switchProject, pinnedProjectId, refreshProjects],
   );
 
   const handleRenameProject = useCallback(

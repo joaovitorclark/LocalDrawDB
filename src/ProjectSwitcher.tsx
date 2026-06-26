@@ -90,6 +90,14 @@ export function ProjectSwitcher({
       >
         <span className="project-switcher__pin" aria-hidden="true">📌</span>
         <span className="project-switcher__name">{pinnedLabel}</span>
+        <button
+          type="button"
+          className="project-switcher__action project-switcher__new-pinned"
+          title="Novo projeto"
+          onClick={handleCreate}
+        >
+          +
+        </button>
       </div>
     );
   }
