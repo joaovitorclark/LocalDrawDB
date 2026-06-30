@@ -29,7 +29,7 @@ import {
 } from './canvas/scaleLimits';
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
-import { detectRenames } from './dsl/renameDetect';
+import { analyzeRenames } from './dsl/reconcile';
 import { isCompleteTableId } from './dsl/edit';
 import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
@@ -123,6 +123,7 @@ export default function App() {
   const [pinnedProjectId, setPinnedProjectId] = useState<string | null>(null);
   const loadedRef = useRef(false);
   const prevDbmlRef = useRef('');
+  const dbmlRef = useRef('');
   const editorRef = useRef<EditorHandle>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout>>();
   const selectColumn = useInteraction((s) => s.selectColumn);
@@ -225,6 +226,9 @@ export default function App() {
     }, 400);
     return () => clearTimeout(commitTimer.current);
   }, [dbml, positions, colors]);
+
+  // Espelha dbml no ref para que handleEditorCommit leia o buffer atual sem re-criar.
+  useEffect(() => { dbmlRef.current = dbml; }, [dbml]);
 
   const applySnapshot = useCallback((s: Snapshot) => {
     clearTimeout(commitTimer.current);
@@ -494,44 +498,32 @@ export default function App() {
     }
   }, []);
 
-  const handleDbmlChange = useCallback(
-    (next: string) => {
-      setDbml(next);
-      clearTimeout(renameTimer.current);
-      renameTimer.current = setTimeout(() => {
-        const prev = prevDbmlRef.current;
-        const detected = detectRenames(prev, next);
-        if (detected.length === 1) {
-          const r = detected[0];
-          if (r.kind === 'table' && r.oldId !== r.newId) {
-            if (!isCompleteTableId(r.oldId) || !isCompleteTableId(r.newId)) {
-              prevDbmlRef.current = next;
-              return;
-            }
-            const propagated = renameTable(next, r.oldId, r.newId);
-            prevDbmlRef.current = propagated;
-            migrateTableId(r.oldId, r.newId);
-            setDbml(propagated);
-            setStatus(`Renomeado ${r.oldId} → ${r.newId} (refs atualizadas)`);
-            return;
-          }
-          if (r.kind === 'column' && r.oldCol !== r.newCol) {
-            const propagated = renameColumnAllRefs(next, r.table, r.oldCol, r.newCol);
-            prevDbmlRef.current = propagated;
-            setDbml(propagated);
-            const sel = useInteraction.getState().selectedColumn;
-            if (sel?.table === r.table && sel.column === r.oldCol) {
-              selectColumn({ table: r.table, column: r.newCol });
-            }
-            setStatus(`Coluna ${r.oldCol} → ${r.newCol} (refs atualizadas)`);
-            return;
-          }
-        }
-        prevDbmlRef.current = next;
-      }, 300);
-    },
-    [migrateTableId, selectColumn],
-  );
+  const handleDbmlChange = useCallback((next: string) => {
+    setDbml(next);
+  }, []);
+
+  const handleEditorCommit = useCallback(() => {
+    const committed = prevDbmlRef.current;
+    const buffer = dbmlRef.current; // ref espelhando dbml
+    if (committed === buffer) return;
+    const impacts = analyzeRenames(committed, buffer);
+    let out = buffer;
+    for (const { rename } of impacts) {
+      if (rename.kind === 'table' && isCompleteTableId(rename.oldId) && isCompleteTableId(rename.newId)) {
+        out = renameTable(out, rename.oldId, rename.newId);
+        migrateTableId(rename.oldId, rename.newId);
+      } else if (rename.kind === 'column') {
+        out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+      }
+    }
+    prevDbmlRef.current = out;
+    if (out !== buffer) {
+      setDbml(out);
+      setStatus(`Edição aplicada (${impacts.reduce((a, i) => a + i.refCount, 0)} refs atualizadas)`);
+    } else {
+      setStatus('');
+    }
+  }, [migrateTableId]);
 
   const goToLine = useCallback((line: number) => {
     setEditorCollapsed(false);
@@ -1242,6 +1234,7 @@ export default function App() {
             ref={editorRef}
             value={dbml}
             onChange={handleDbmlChange}
+            onCommit={handleEditorCommit}
             error={parsed.error}
             errorLine={parsed.errorLine}
             onFocusTable={focusTableWithPan}
