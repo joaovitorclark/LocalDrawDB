@@ -224,3 +224,14 @@ describe('organize preserva LayerGroup', () => {
     expect(lgIdx).toBeLessThan(recIdx);
   });
 });
+
+describe('splitDbmlBlocks — Rolenames', () => {
+  it('reconhece bloco Rolenames como tipo próprio', () => {
+    const src = `Rolenames {
+  pedidos.cliente_id < clientes.id
+}
+`;
+    const blocks = splitDbmlBlocks(src);
+    expect(blocks.some((b) => b.type === 'rolenames')).toBe(true);
+  });
+});
