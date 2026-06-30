@@ -291,7 +291,26 @@ export function parseLineageFieldsBlock(block: string): ParsedFieldLineage[] {
   return out;
 }
 
-const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt']);
+export type ParsedRolename = {
+  child: { table: string; column: string };
+  parent: { table: string; column: string };
+};
+
+export function parseRolenamesBlock(block: string): ParsedRolename[] {
+  const out: ParsedRolename[] = [];
+  for (const raw of block.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//') || /^Rolenames\s*\{/i.test(line) || line === '}') continue;
+    const m = /^([^\s<]+)\s*<\s*([^\s]+)/.exec(line);
+    if (!m) continue;
+    const c = splitTableColumn(m[1]);
+    const p = splitTableColumn(m[2]);
+    if (c && p) out.push({ child: c, parent: p });
+  }
+  return out;
+}
+
+const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt', 'rolenames']);
 
 /** Remove blocos extras antes do @dbml/core. */
 export function cleanDbml(src: string): string {
@@ -330,6 +349,7 @@ export function extractRecords(src: string): {
   lineage: ParsedLineage[];
   lineageFields: ParsedFieldLineage[];
   dbtTables: ParsedDbtTable[];
+  rolenames: ParsedRolename[];
   mapCleanLineToOriginal: CleanLineMap;
 } {
   const blocks = splitDbmlBlocks(src);
@@ -338,6 +358,7 @@ export function extractRecords(src: string): {
   const lineage: ParsedLineage[] = [];
   const lineageFields: ParsedFieldLineage[] = [];
   const dbtTables: ParsedDbtTable[] = [];
+  const rolenames: ParsedRolename[] = [];
   for (const b of blocks) {
     if (b.type === 'records') {
       const pr = parseRecords(b.text);
@@ -351,8 +372,10 @@ export function extractRecords(src: string): {
       lineageFields.push(...parseLineageFieldsBlock(b.text));
     } else if (b.type === 'dbt') {
       dbtTables.push(...parseDbtBlock(b.text));
+    } else if (b.type === 'rolenames') {
+      rolenames.push(...parseRolenamesBlock(b.text));
     }
   }
   const { clean, mapCleanLineToOriginal } = buildCleanFromBlocks(blocks);
-  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, mapCleanLineToOriginal };
+  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, rolenames, mapCleanLineToOriginal };
 }

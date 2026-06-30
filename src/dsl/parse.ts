@@ -9,6 +9,7 @@ import {
   type ParsedFieldLineage,
   type ParsedLayerGroup,
   type ParsedLineage,
+  type ParsedRolename,
 } from './dbmlClean';
 import type { ParsedRecords } from './records';
 import { resolveParseErrorLine } from './lineLocate';
@@ -23,6 +24,7 @@ export {
   type ParsedFieldLineage,
   type ParsedLayerGroup,
   type ParsedLineage,
+  type ParsedRolename,
 } from './dbmlClean';
 
 export type Cardinality = '*' | '1';
@@ -65,6 +67,7 @@ export type ParseResult = {
   layerGroups: ParsedLayerGroup[];
   lineage: ParsedLineage[];
   lineageFields: ParsedFieldLineage[];
+  rolenames: ParsedRolename[];
   error?: string;
   /** Linha 0-based no buffer do editor (quando disponível). */
   errorLine?: number;
@@ -129,9 +132,9 @@ function applyTableGroupMembership(dbml: string, tables: TableView[]): void {
 
 export function parseDbml(dbml: string): ParseResult {
   if (!dbml.trim()) {
-    return { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] };
+    return { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] };
   }
-  const { clean, records, layerGroups, lineage, lineageFields, dbtTables, mapCleanLineToOriginal } =
+  const { clean, records, layerGroups, lineage, lineageFields, dbtTables, rolenames, mapCleanLineToOriginal } =
     extractRecords(dbml);
   let db: any;
   try {
@@ -140,7 +143,7 @@ export function parseDbml(dbml: string): ParseResult {
     const { rawMessage, cleanLine0 } = formatParseError(e);
     const { message, line } = buildParseError(dbml, rawMessage, cleanLine0, mapCleanLineToOriginal);
     return {
-      tables: [], refs: [], records, layerGroups, lineage, lineageFields, error: message, errorLine: line,
+      tables: [], refs: [], records, layerGroups, lineage, lineageFields, rolenames, error: message, errorLine: line,
     };
   }
 
@@ -220,7 +223,7 @@ export function parseDbml(dbml: string): ParseResult {
     }
   }
 
-  return { tables, refs, records, layerGroups, lineage, lineageFields };
+  return { tables, refs, records, layerGroups, lineage, lineageFields, rolenames };
 }
 
 /** Snippet de colunas de metadados padrão do lakehouse. */
