@@ -2126,3 +2126,78 @@ body {
   border-radius: 6px;
 }
 .project-switcher--pinned .project-switcher__pin { font-size: 0.9em; }
+
+/* v14 — modal de confirmação de rename */
+.rename-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(10, 15, 25, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rename-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  padding: 20px 24px;
+  max-width: 420px;
+  width: 100%;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.rename-modal h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.rename-modal__list {
+  margin: 0 0 10px;
+  padding: 0 0 0 16px;
+}
+
+.rename-modal__list li {
+  margin: 4px 0;
+}
+
+.rename-modal__hint {
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+
+.rename-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.rename-modal__actions button {
+  background: var(--brand-navy-700);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rename-modal__actions button:hover {
+  background: #244a87;
+  border-color: var(--brand-green);
+}
+
+.rename-modal__actions button:first-child {
+  background: var(--brand-green);
+  border-color: var(--brand-green);
+  color: #fff;
+}
+
+.rename-modal__actions button:first-child:hover {
+  background: var(--brand-green-600);
+  border-color: var(--brand-green-600);
+}

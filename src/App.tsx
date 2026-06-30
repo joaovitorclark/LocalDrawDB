@@ -30,7 +30,9 @@ import {
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { analyzeRenames } from './dsl/reconcile';
+import type { RenameImpact } from './dsl/reconcile';
 import { isCompleteTableId } from './dsl/edit';
+import { RenameConfirmModal } from './editor/RenameConfirmModal';
 import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
@@ -101,6 +103,38 @@ Lineage {
 }
 `;
 
+/**
+ * Aplica uma lista de impacts ao DBML e retorna o texto atualizado + contagem de refs
+ * efetivamente atualizadas (apenas renames que passaram na validação de ID completo).
+ * Também sincroniza a seleção de coluna no canvas após um rename de coluna (Fix A).
+ */
+function applyRenames(
+  src: string,
+  impacts: RenameImpact[],
+  migrateTableId: (oldId: string, newId: string) => void,
+): { dbml: string; appliedRefCount: number } {
+  let out = src;
+  let appliedRefCount = 0;
+  for (const { rename, refCount } of impacts) {
+    if (rename.kind === 'table') {
+      if (isCompleteTableId(rename.oldId) && isCompleteTableId(rename.newId)) {
+        out = renameTable(out, rename.oldId, rename.newId);
+        migrateTableId(rename.oldId, rename.newId);
+        appliedRefCount += refCount; // Fix B: soma só quando efetivamente aplicado
+      }
+    } else if (rename.kind === 'column') {
+      const selCol = useInteraction.getState().selectedColumn;
+      out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+      appliedRefCount += refCount;
+      // Fix A: sincroniza selectedColumn no canvas após rename de coluna
+      if (selCol?.table === rename.table && selCol?.column === rename.oldCol) {
+        useInteraction.getState().selectColumn({ table: rename.table, column: rename.newCol });
+      }
+    }
+  }
+  return { dbml: out, appliedRefCount };
+}
+
 export default function App() {
   const [dbml, setDbml] = useState('');
   const [positions, setPositions] = useState<Positions>({});
@@ -121,6 +155,11 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState('');
   const [pinnedProjectId, setPinnedProjectId] = useState<string | null>(null);
+  const [pendingRename, setPendingRename] = useState<{
+    impacts: RenameImpact[];
+    buffer: string;
+    committed: string;
+  } | null>(null);
   const loadedRef = useRef(false);
   const prevDbmlRef = useRef('');
   const dbmlRef = useRef('');
@@ -507,19 +546,28 @@ export default function App() {
     const buffer = dbmlRef.current; // ref espelhando dbml
     if (committed === buffer) return;
     const impacts = analyzeRenames(committed, buffer);
-    let out = buffer;
-    for (const { rename } of impacts) {
-      if (rename.kind === 'table' && isCompleteTableId(rename.oldId) && isCompleteTableId(rename.newId)) {
-        out = renameTable(out, rename.oldId, rename.newId);
-        migrateTableId(rename.oldId, rename.newId);
-      } else if (rename.kind === 'column') {
-        out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+
+    const refImpacts = impacts.filter((i) => i.affectsRefs);
+    const directImpacts = impacts.filter((i) => !i.affectsRefs);
+
+    // Aplica diretamente os renames sem referências
+    const { dbml: out, appliedRefCount } = applyRenames(buffer, directImpacts, migrateTableId);
+
+    if (refImpacts.length > 0) {
+      // Há renames com refs: atualiza DBML com renames diretos já aplicados e abre o modal
+      if (out !== buffer) {
+        prevDbmlRef.current = out;
+        setDbml(out);
       }
+      setPendingRename({ impacts: refImpacts, buffer: out, committed });
+      return;
     }
+
+    // Sem renames com refs: aplica tudo e fecha
     prevDbmlRef.current = out;
     if (out !== buffer) {
       setDbml(out);
-      setStatus(`Edição aplicada (${impacts.reduce((a, i) => a + i.refCount, 0)} refs atualizadas)`);
+      setStatus(`Edição aplicada (${appliedRefCount} refs atualizadas)`);
     } else {
       setStatus('');
     }
@@ -1345,6 +1393,28 @@ export default function App() {
           />
         </section>
       </main>
+      {pendingRename && (
+        <RenameConfirmModal
+          impacts={pendingRename.impacts}
+          onApply={() => {
+            const { dbml: out, appliedRefCount } = applyRenames(
+              pendingRename.buffer,
+              pendingRename.impacts,
+              migrateTableId,
+            );
+            prevDbmlRef.current = out;
+            setDbml(out);
+            setStatus(`Edição aplicada (${appliedRefCount} refs atualizadas)`);
+            setPendingRename(null);
+          }}
+          onKeepSeparate={() => {
+            // TODO(v14-02): registrar rolename (Task 10)
+            prevDbmlRef.current = pendingRename.buffer;
+            setPendingRename(null);
+          }}
+          onClose={() => setPendingRename(null)}
+        />
+      )}
     </div>
   );
 }
