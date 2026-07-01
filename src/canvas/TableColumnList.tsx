@@ -51,7 +51,7 @@ function ColumnRowContent({
       {!lineageMode && (
         <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
       )}
-      {fieldLineageVisible && (
+      {lineageMode && (
         <Handle
           type="target"
           position={Position.Left}
@@ -89,7 +89,7 @@ function ColumnRowContent({
       {!lineageMode && (
         <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" />
       )}
-      {fieldLineageVisible && (
+      {lineageMode && (
         <Handle
           type="source"
           position={Position.Right}

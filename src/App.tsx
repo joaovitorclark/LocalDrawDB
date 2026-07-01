@@ -917,6 +917,12 @@ export default function App() {
       addFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
     );
   };
+  // Criar mapeamento campo→campo por arraste no canvas (origem e destino explícitos).
+  const handleCreateFieldLineage = (
+    sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
+  ) => {
+    mutateDbml((d) => addFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn));
+  };
   const handleRemoveFieldLineage = (
     sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
   ) => {
@@ -1326,6 +1332,7 @@ export default function App() {
               onCreateLineage={handleCreateLineage}
               onRemoveLineage={handleRemoveLineage}
               onRemoveFieldLineage={handleRemoveFieldLineage}
+              onCreateFieldLineage={handleCreateFieldLineage}
               layerOf={layerOf}
               collapsedGroups={collapsedGroups}
               onToggleGroup={handleToggleGroup}

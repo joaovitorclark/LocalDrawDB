@@ -74,6 +74,9 @@ type Props = {
   onRemoveFieldLineage: (
     sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
   ) => void;
+  onCreateFieldLineage: (
+    sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
+  ) => void;
   layerOf: (tableId: string) => string | undefined;
   collapsedGroups: string[];
   onToggleGroup: (name: string) => void;
@@ -184,7 +187,7 @@ function FocusFieldMappingHelper() {
 
 export function Canvas(props: Props) {
   const { parsed, nodeExtras, positions, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
-    staleWarning, lineage, lineageFields, onCreateLineage, onRemoveLineage, onRemoveFieldLineage,
+    staleWarning, lineage, lineageFields, onCreateLineage, onRemoveLineage, onRemoveFieldLineage, onCreateFieldLineage,
     layerOf, collapsedGroups, onToggleGroup, focusTableId, focusNonce, onFocusTableDone, fitViewTrigger,
     externalStubs = [], crossRefs = [] } = props;
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -323,7 +326,9 @@ export function Canvas(props: Props) {
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return false;
       if (lineageMode) {
-        return isLineageHandle(c.sourceHandle) && isLineageHandle(c.targetHandle);
+        const portToPort = isLineageHandle(c.sourceHandle) && isLineageHandle(c.targetHandle);
+        const fieldToField = !!c.sourceHandle?.startsWith('fl:s:') && !!c.targetHandle?.startsWith('fl:t:');
+        return portToPort || fieldToField;
       }
       return !!c.sourceHandle?.startsWith('s:') && !!c.targetHandle?.startsWith('t:');
     },
@@ -333,6 +338,11 @@ export function Canvas(props: Props) {
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target) return;
     if (lineageMode) {
+      // Puxar entre handles de coluna (fl:) cria mapeamento campo→campo.
+      if (c.sourceHandle?.startsWith('fl:s:') && c.targetHandle?.startsWith('fl:t:')) {
+        onCreateFieldLineage(c.source, c.sourceHandle.slice(5), c.target, c.targetHandle.slice(5));
+        return;
+      }
       onCreateLineage(c.source, c.target);
       const id = `lin:${c.source}->${c.target}`;
       const sourceHandle =
@@ -377,7 +387,7 @@ export function Canvas(props: Props) {
       return;
     }
     onCreateRef(c.source, stripHandle(c.sourceHandle), c.target, stripHandle(c.targetHandle));
-  }, [lineageMode, onCreateLineage, onCreateRef, onRemoveLineage, parsed.tables, positions, setEdges]);
+  }, [lineageMode, onCreateLineage, onCreateFieldLineage, onCreateRef, onRemoveLineage, parsed.tables, positions, setEdges]);
 
   // Mover grupo inteiro: aplica o delta às tabelas-membro.
   const groupDrag = useRef<{ name: string; last: { x: number; y: number } } | null>(null);
