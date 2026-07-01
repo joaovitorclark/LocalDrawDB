@@ -1912,6 +1912,46 @@ body {
   font-weight: 400;
   margin-left: 6px;
 }
+/* Constraints da tabela selecionada (#6) */
+.records-constraints {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.records-constraints__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b98a5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.records-constraints__row {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.records-constraints__tag {
+  display: inline-block;
+  min-width: 26px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  background: var(--brand-navy-700, #1c3a63);
+  color: #cbd5e1;
+}
+.records-constraints__tag--pk {
+  background: #b08d57;
+  color: #1a1205;
+}
+.records-constraints__tag--fk {
+  background: #7c3aed;
+  color: #fff;
+}
 .records-table__note {
   margin: 0 0 6px;
   padding: 6px 8px;

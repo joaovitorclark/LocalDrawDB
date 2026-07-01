@@ -1410,6 +1410,7 @@ export default function App() {
           <RecordsPanel
             records={activeModel.records}
             tables={activeModel.tables}
+            refs={activeModel.refs}
             dbml={dbml}
             onApply={(next) => {
               prevDbmlRef.current = next;
