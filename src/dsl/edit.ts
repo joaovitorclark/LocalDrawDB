@@ -646,3 +646,37 @@ export function appendRef(
   const sep = src.endsWith('\n') ? '' : '\n';
   return `${src}${sep}${line}\n`;
 }
+
+// ---- Rolenames (mapeamento rolename child→parent) ----
+
+export function addRolename(
+  src: string,
+  child: { table: string; column: string },
+  parent: { table: string; column: string },
+): string {
+  const line = `  ${child.table}.${child.column} < ${parent.table}.${parent.column}`;
+  const blocks = splitDbmlBlocks(src);
+  const block = blocks.find((b) => b.type === 'rolenames');
+  const needle = `${child.table}.${child.column} <`;
+  if (block) {
+    if (block.text.includes(needle)) return src;
+    const close = block.text.lastIndexOf('}');
+    if (close >= 0) {
+      const newText = block.text.slice(0, close) + `${line}\n` + block.text.slice(close);
+      return src.replace(block.text, newText);
+    }
+  }
+  return `${src.replace(/\n+$/, '')}\n\nRolenames {\n${line}\n}\n`.replace(/^\n+/, '');
+}
+
+export function removeRolename(src: string, child: { table: string; column: string }): string {
+  const blocks = splitDbmlBlocks(src);
+  const block = blocks.find((b) => b.type === 'rolenames');
+  if (!block) return src;
+  const prefix = `${child.table}.${child.column} <`;
+  const updated = block.text.split('\n').filter((l) => !l.trim().startsWith(prefix)).join('\n');
+  if (!/\S/.test(updated.replace(/Rolenames\s*\{/i, '').replace('}', ''))) {
+    return src.replace(block.text, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+  return src.replace(block.text, updated);
+}
