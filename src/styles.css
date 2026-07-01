@@ -449,10 +449,25 @@ body {
   border: 1px solid #c4ccd6;
   border-radius: 8px;
   min-width: 200px;
+  width: 100%;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   font-size: 12px;
   color: #1a2027;
   overflow: hidden;
+}
+/* Handle de redimensionamento (largura) na borda direita da tabela (#8) */
+.table-resize-handle {
+  width: 10px !important;
+  height: 32px !important;
+  right: -5px !important;
+  border-radius: 3px;
+  cursor: ew-resize;
+}
+.table-node-shell:hover .table-resize-handle {
+  background: rgba(22, 163, 74, 0.35) !important;
+}
+.table-resize-handle:hover {
+  background: rgba(22, 163, 74, 0.7) !important;
 }
 .table-node__col-count {
   font-size: 10px;

@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position, NodeResizeControl } from 'reactflow';
 import { useInteraction } from '../store/interaction';
 import { useCanvasActions, TABLE_COLORS, type TableNodeData } from './actions';
 import { externalSourceHandle, externalTargetHandle } from './pageFilter';
@@ -41,6 +41,13 @@ function TableNodeImpl({ data }: { data: TableNodeData }) {
       className={`table-node-shell${lineageMode ? ' table-node-shell--lineage' : ''}${showLineagePorts ? ' table-node-shell--lineage-ports' : ''}`}
     >
       {showLineagePorts && <LineagePorts />}
+      <NodeResizeControl
+        position="right"
+        minWidth={200}
+        onResizeEnd={(_, params) => actions.onResizeTable(data.id, params.width)}
+        className="table-resize-handle"
+        style={{ background: 'transparent', border: 'none' }}
+      />
       <div className="table-node">
         <div className="table-node__header" style={{ background: color }}>
           <span

@@ -126,6 +126,7 @@ export function useCanvasNodes(
   nodeExtras: NodeExtras,
   externalStubs: ExternalGroupStub[] = [],
   selectedTableIds: string[] = [],
+  sizes: Record<string, number> = {},
 ): void {
   // Cache de `data` por id: preserva a identidade do objeto enquanto a assinatura de
   // conteúdo não muda, permitindo que `React.memo(TableNode)` pule re-renders das
@@ -171,7 +172,10 @@ export function useCanvasNodes(
           selected: selectedSet.has(t.id),
           deletable: true,
           hidden: opts.hiddenTables.has(t.id),
-          style: opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : undefined,
+          style: {
+            ...(opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : {}),
+            ...(sizes[t.id] ? { width: sizes[t.id] } : {}),
+          },
         };
       });
       for (const key of cache.keys()) if (!seen.has(key)) cache.delete(key);
@@ -186,5 +190,5 @@ export function useCanvasNodes(
       }));
       return [...groupNodes(parsed.tables, posOf, opts, false), ...stubNodes, ...tableNodes];
     });
-  }, [parsed.tables, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds]);
+  }, [parsed.tables, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds, sizes]);
 }

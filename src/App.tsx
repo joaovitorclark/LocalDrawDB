@@ -151,6 +151,7 @@ function applyRenames(
 export default function App() {
   const [dbml, setDbml] = useState('');
   const [positions, setPositions] = useState<Positions>({});
+  const [sizes, setSizes] = useState<Record<string, number>>({});
   const [colors, setColors] = useState<Colors>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [canvasPages, setCanvasPages] = useState<CanvasPage[]>([allTablesPage()]);
@@ -237,6 +238,7 @@ export default function App() {
         startTransition(() => {
           setDbml(dbml0);
           setPositions(pos0);
+          setSizes(p.canvas?.sizes ?? {});
           setColors(col0);
           setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
           setCanvasPages(pages0);
@@ -265,6 +267,7 @@ export default function App() {
             setDbml(dbml0);
             prevDbmlRef.current = dbml0;
             setPositions(pos0);
+            setSizes(p.canvas?.sizes ?? {});
             setColors(col0);
             setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
             baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
@@ -344,7 +347,7 @@ export default function App() {
   useEffect(() => {
     if (!loadedRef.current) return;
     setSaveState((s) => (s === 'idle' || s === 'saving' ? s : 'dirty'));
-  }, [dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
+  }, [dbml, positions, sizes, colors, collapsedGroups, canvasPages, activePageIds]);
 
   const handleSave = useCallback((explicitDbml?: string) => {
     setSaveState('saving');
@@ -352,14 +355,14 @@ export default function App() {
     // explicitDbml é usado pelo Ctrl+S para garantir que o texto recém-reconciliado seja
     // persistido mesmo antes que o setDbml(out) do handleEditorCommit seja processado.
     const dbmlToSave = explicitDbml !== undefined ? explicitDbml : dbml;
-    const canvas = { positions, colors, collapsedGroups, pages: canvasPages, activePageIds };
+    const canvas = { positions, sizes, colors, collapsedGroups, pages: canvasPages, activePageIds };
     const saveCall = currentProjectId
       ? api.saveProjectById(currentProjectId, dbmlToSave, canvas)
       : api.saveProject(dbmlToSave, canvas);
     saveCall
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('error'));
-  }, [currentProjectId, dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
+  }, [currentProjectId, dbml, positions, sizes, colors, collapsedGroups, canvasPages, activePageIds]);
 
   // Auto-save: quando ativo, salva após 1.5s de dirty.
   useEffect(() => {
@@ -889,6 +892,7 @@ export default function App() {
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
       colorOf: (id) => colorsRef.current[id],
       onSetColor: (id, color) => setDbml((d) => setTableColor(d, id, color)),
+      onResizeTable: (id, width) => setSizes((prev) => ({ ...prev, [id]: Math.round(width) })),
       layerOf,
       layerColorOf: (layerId) => layerColorOf(layersArrRef.current, layerId),
       onSetLayer: (id, layerId) =>
@@ -1101,6 +1105,7 @@ export default function App() {
         setDbml(dbml0);
         prevDbmlRef.current = dbml0;
         setPositions(pos0);
+        setSizes(p.canvas?.sizes ?? {});
         setColors(col0);
         setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
         setCanvasPages(pages0);
@@ -1358,6 +1363,7 @@ export default function App() {
               parsed={canvasActiveModel}
               nodeExtras={nodeExtras}
               positions={positions}
+              sizes={sizes}
               onPositionsChange={setPositions}
               onCreateRef={handleCreateRef}
               onRemoveRef={handleRemoveRef}

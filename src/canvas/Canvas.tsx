@@ -61,6 +61,7 @@ type Props = {
   /** Cor de cabeçalho + metadados pré-computados por tabela (memoização dos nós). */
   nodeExtras: NodeExtras;
   positions: Positions;
+  sizes: Record<string, number>;
   onPositionsChange: (p: Positions) => void;
   onCreateRef: (a: string, ac: string, b: string, bc: string) => void;
   onRemoveRef: (a: string, ac: string, b: string, bc: string) => void;
@@ -186,7 +187,7 @@ function FocusFieldMappingHelper() {
 }
 
 export function Canvas(props: Props) {
-  const { parsed, nodeExtras, positions, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
+  const { parsed, nodeExtras, positions, sizes, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
     staleWarning, lineage, lineageFields, onCreateLineage, onRemoveLineage, onRemoveFieldLineage, onCreateFieldLineage,
     layerOf, collapsedGroups, onToggleGroup, focusTableId, focusNonce, onFocusTableDone, fitViewTrigger,
     externalStubs = [], crossRefs = [] } = props;
@@ -279,7 +280,7 @@ export function Canvas(props: Props) {
     return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, onToggleGroup };
   }, [parsed.tables, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
 
-  useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds);
+  useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds, sizes);
 
   useCanvasEdges(setEdges, {
     parsed,

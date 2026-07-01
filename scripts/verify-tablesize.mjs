@@ -1,0 +1,31 @@
+import { chromium } from 'playwright-core';
+import { readFileSync } from 'fs';
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+const errors = [];
+page.on('pageerror', (e) => errors.push(String(e)));
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await page.goto('http://localhost:5192/', { waitUntil: 'networkidle' });
+await page.waitForSelector('.table-node', { timeout: 15000 });
+await page.waitForTimeout(600);
+
+const t = page.locator('.table-node').filter({ hasText: 'dim_customer' }).first();
+const w0 = (await t.boundingBox()).width;
+const handle = t.locator('xpath=../..').locator('.table-resize-handle').first();
+console.log('handle presente?', await handle.count());
+const hb = await handle.boundingBox();
+await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+await page.mouse.down();
+await page.mouse.move(hb.x + 160, hb.y + hb.height / 2, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+const w1 = (await t.boundingBox()).width;
+console.log(`largura tabela: ${Math.round(w0)} -> ${Math.round(w1)} (delta ${Math.round(w1 - w0)})`);
+
+await page.getByRole('button', { name: 'Salvar' }).click({ force: true });
+await page.waitForTimeout(1200);
+const file = JSON.parse(readFileSync('data/projects/default/canvas.json', 'utf8').replace(/^﻿/, ''));
+console.log('sizes salvos no canvas.json:', JSON.stringify(file.sizes ?? {}).slice(0, 120));
+console.log('erros:', errors.length ? errors : 'nenhum');
+await browser.close();
