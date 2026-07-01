@@ -109,11 +109,16 @@ Lineage {
  * Aplica uma lista de impacts ao DBML e retorna o texto atualizado + contagem de refs
  * efetivamente atualizadas (apenas renames que passaram na validação de ID completo).
  * Também sincroniza a seleção de coluna no canvas após um rename de coluna (Fix A).
+ *
+ * @param keyColFn - função usada para renomear colunas-chave (com FKs filhas).
+ *   Default: propagateKeyRename (propaga o novo nome às filhas herdadas).
+ *   Passa keepSeparateKeyRename para manter filhas com nome próprio e registrar rolenames.
  */
 function applyRenames(
   src: string,
   impacts: RenameImpact[],
   migrateTableId: (oldId: string, newId: string) => void,
+  keyColFn: (out: string, table: string, oldCol: string, newCol: string) => string = propagateKeyRename,
 ): { dbml: string; appliedRefCount: number } {
   let out = src;
   let appliedRefCount = 0;
@@ -126,10 +131,10 @@ function applyRenames(
       }
     } else if (rename.kind === 'column') {
       const selCol = useInteraction.getState().selectedColumn;
-      // Usa propagateKeyRename para colunas-chave (com FKs filhas); renameColumnAllRefs para as demais
+      // Usa keyColFn para colunas-chave (com FKs filhas); renameColumnAllRefs para as demais
       const isKey = classifyChildFks(src, rename.table, rename.oldCol).length > 0;
       if (isKey) {
-        out = propagateKeyRename(out, rename.table, rename.oldCol, rename.newCol);
+        out = keyColFn(out, rename.table, rename.oldCol, rename.newCol);
       } else {
         out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
       }
@@ -1417,30 +1422,8 @@ export default function App() {
           }}
           onKeepSeparate={() => {
             // Mantém filhas herdadas com o nome atual, registrando-as como rolenames.
-            // Mesma lógica que onApply, mas usa keepSeparateKeyRename para colunas-chave.
-            const origSrc = pendingRename.buffer;
-            let out = origSrc;
-            for (const { rename } of pendingRename.impacts) {
-              if (rename.kind === 'table') {
-                // Rename de tabela: rolename não se aplica a tabelas — comportamento igual ao onApply
-                if (isCompleteTableId(rename.oldId) && isCompleteTableId(rename.newId)) {
-                  out = renameTable(out, rename.oldId, rename.newId);
-                  migrateTableId(rename.oldId, rename.newId);
-                }
-              } else if (rename.kind === 'column') {
-                const selCol = useInteraction.getState().selectedColumn;
-                const isKey = classifyChildFks(origSrc, rename.table, rename.oldCol).length > 0;
-                if (isKey) {
-                  out = keepSeparateKeyRename(out, rename.table, rename.oldCol, rename.newCol);
-                } else {
-                  out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
-                }
-                // Fix A: sincroniza selectedColumn no canvas após rename de coluna
-                if (selCol?.table === rename.table && selCol?.column === rename.oldCol) {
-                  useInteraction.getState().selectColumn({ table: rename.table, column: rename.newCol });
-                }
-              }
-            }
+            // Reutiliza applyRenames com keepSeparateKeyRename para colunas-chave.
+            const { dbml: out } = applyRenames(pendingRename.buffer, pendingRename.impacts, migrateTableId, keepSeparateKeyRename);
             prevDbmlRef.current = out;
             setDbml(out);
             setStatus('Rolenames registrados — filhas mantêm nome próprio');
