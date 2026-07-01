@@ -12,6 +12,7 @@ export type BlockType =
   | 'lineageFields'
   | 'records'
   | 'rolenames'
+  | 'colors'
   | 'dbt'
   | 'comment'
   | 'blank';
@@ -50,6 +51,7 @@ function detectType(trimmed: string): BlockType {
   if (/^Lineage\b/i.test(trimmed)) return 'lineage';
   if (/^records\b/i.test(trimmed)) return 'records';
   if (/^Rolenames\b/i.test(trimmed)) return 'rolenames';
+  if (/^Colors\b/i.test(trimmed)) return 'colors';
   if (/^Dbt\b/i.test(trimmed)) return 'dbt';
   return 'comment';
 }

@@ -310,7 +310,21 @@ export function parseRolenamesBlock(block: string): ParsedRolename[] {
   return out;
 }
 
-const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt', 'rolenames']);
+export type ParsedColor = { table: string; color: string };
+
+/** Parse de `Colors { table.id: #hex }` — cor por tabela, persistida no script. */
+export function parseColorsBlock(block: string): ParsedColor[] {
+  const out: ParsedColor[] = [];
+  for (const raw of block.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//') || /^Colors\s*\{/i.test(line) || line === '}') continue;
+    const m = /^("?[^"\s:]+"?)\s*:\s*(#[0-9a-fA-F]{3,8}|[A-Za-z]+)/.exec(line);
+    if (m) out.push({ table: m[1].replace(/["`]/g, ''), color: m[2] });
+  }
+  return out;
+}
+
+const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt', 'rolenames', 'colors']);
 
 /** Remove blocos extras antes do @dbml/core. */
 export function cleanDbml(src: string): string {
@@ -350,6 +364,7 @@ export function extractRecords(src: string): {
   lineageFields: ParsedFieldLineage[];
   dbtTables: ParsedDbtTable[];
   rolenames: ParsedRolename[];
+  colors: ParsedColor[];
   mapCleanLineToOriginal: CleanLineMap;
 } {
   const blocks = splitDbmlBlocks(src);
@@ -359,6 +374,7 @@ export function extractRecords(src: string): {
   const lineageFields: ParsedFieldLineage[] = [];
   const dbtTables: ParsedDbtTable[] = [];
   const rolenames: ParsedRolename[] = [];
+  const colors: ParsedColor[] = [];
   for (const b of blocks) {
     if (b.type === 'records') {
       const pr = parseRecords(b.text);
@@ -374,8 +390,10 @@ export function extractRecords(src: string): {
       dbtTables.push(...parseDbtBlock(b.text));
     } else if (b.type === 'rolenames') {
       rolenames.push(...parseRolenamesBlock(b.text));
+    } else if (b.type === 'colors') {
+      colors.push(...parseColorsBlock(b.text));
     }
   }
   const { clean, mapCleanLineToOriginal } = buildCleanFromBlocks(blocks);
-  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, rolenames, mapCleanLineToOriginal };
+  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, rolenames, colors, mapCleanLineToOriginal };
 }

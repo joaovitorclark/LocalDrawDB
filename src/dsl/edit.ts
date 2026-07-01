@@ -680,3 +680,29 @@ export function removeRolename(src: string, child: { table: string; column: stri
   }
   return src.replace(block.text, updated);
 }
+
+/** Grava a cor de uma tabela no bloco `Colors {}` (ou remove com color=null). */
+export function setTableColor(src: string, tableId: string, color: string | null): string {
+  const blocks = splitDbmlBlocks(src);
+  const block = blocks.find((b) => b.type === 'colors');
+  const line = `  ${tableId}: ${color}`;
+  const matches = (l: string) => stripQuotes(l.trim().split(':')[0] ?? '') === stripQuotes(tableId);
+  if (block) {
+    const kept = block.text.split('\n').filter((l) => {
+      const t = l.trim();
+      if (!t || /^Colors\s*\{/i.test(t) || t === '}') return true;
+      return !matches(l);
+    });
+    let updated = kept.join('\n');
+    if (color) {
+      const close = updated.lastIndexOf('}');
+      updated = updated.slice(0, close) + `${line}\n` + updated.slice(close);
+    }
+    if (!/\S/.test(updated.replace(/Colors\s*\{/i, '').replace('}', ''))) {
+      return src.replace(block.text, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+    }
+    return src.replace(block.text, updated);
+  }
+  if (!color) return src;
+  return `${src.replace(/\n+$/, '')}\n\nColors {\n${line}\n}\n`.replace(/^\n+/, '');
+}
