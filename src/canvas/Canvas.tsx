@@ -17,7 +17,7 @@ import {
   type ExternalGroupStub,
 } from './pageFilter';
 import { useCanvasEdges } from './hooks/useCanvasEdges';
-import { useCanvasNodes, useCanvasSelectionSync, type NodeExtras, type NodeOpts, type Positions } from './hooks/useCanvasNodes';
+import { useCanvasNodes, type NodeExtras, type NodeOpts, type Positions } from './hooks/useCanvasNodes';
 import { useInteraction } from '../store/interaction';
 import type { ParseResult, ParsedFieldLineage } from '../dsl/parse';
 import type { LineageLink } from '../api';
@@ -263,7 +263,6 @@ export function Canvas(props: Props) {
     return set;
   }, [focusTables, parsed.refs, lineage, lineageFields, lineageMode, lineageVisible, fieldLineageVisible, crossRefs, aggregatedCrossLinks]);
 
-  const tableIds = useMemo(() => parsed.tables.map((t) => t.id), [parsed.tables]);
 
   // Visibilidade por camada + colapso → hidden/dim.
   const opts = useMemo<NodeOpts>(() => {
@@ -280,8 +279,7 @@ export function Canvas(props: Props) {
     return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, onToggleGroup };
   }, [parsed.tables, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
 
-  useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs);
-  useCanvasSelectionSync(setNodes, selectedTableIds, tableIds);
+  useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds);
 
   useCanvasEdges(setEdges, {
     parsed,
