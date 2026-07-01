@@ -14,6 +14,7 @@ type ColumnRowProps = {
   column: ColumnView;
   selectedColumn: string | null;
   fieldLineageVisible: boolean;
+  lineageMode: boolean;
   editing: string | null;
   draft: string;
   scrollable: boolean;
@@ -28,6 +29,7 @@ function ColumnRowContent({
   column: c,
   selectedColumn,
   fieldLineageVisible,
+  lineageMode,
   editing,
   draft,
   scrollable,
@@ -46,8 +48,10 @@ function ColumnRowContent({
         onSelect(c.name, e.altKey);
       }}
     >
-      <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
-      {fieldLineageVisible && (
+      {!lineageMode && (
+        <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
+      )}
+      {lineageMode && (
         <Handle
           type="target"
           position={Position.Left}
@@ -82,8 +86,10 @@ function ColumnRowContent({
         </span>
       )}
       <span className="col-type">{c.type}</span>
-      <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" />
-      {fieldLineageVisible && (
+      {!lineageMode && (
+        <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" />
+      )}
+      {lineageMode && (
         <Handle
           type="source"
           position={Position.Right}
@@ -108,6 +114,7 @@ export type TableColumnListProps = {
   columns: ColumnView[];
   selectedColumn: string | null;
   fieldLineageVisible: boolean;
+  lineageMode: boolean;
   editing: string | null;
   draft: string;
   onSelect: (column: string, altKey: boolean) => void;
@@ -122,6 +129,7 @@ export function TableColumnList(props: TableColumnListProps): ReactNode {
     columns,
     selectedColumn,
     fieldLineageVisible,
+    lineageMode,
     editing,
     draft,
     onSelect,
@@ -179,6 +187,7 @@ export function TableColumnList(props: TableColumnListProps): ReactNode {
   const rowProps: Omit<ColumnRowProps, 'column'> = {
     selectedColumn,
     fieldLineageVisible,
+    lineageMode,
     editing,
     draft,
     scrollable,

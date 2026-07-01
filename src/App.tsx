@@ -29,8 +29,12 @@ import {
 } from './canvas/scaleLimits';
 import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
-import { detectRenames } from './dsl/renameDetect';
+import { analyzeRenames } from './dsl/reconcile';
+import type { RenameImpact } from './dsl/reconcile';
 import { isCompleteTableId } from './dsl/edit';
+import { classifyChildFks } from './dsl/rolename';
+import { propagateKeyRename, keepSeparateKeyRename } from './dsl/propagateKeyRename';
+import { RenameConfirmModal } from './editor/RenameConfirmModal';
 import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
 import { captureDiagramPng, downloadDataUrl } from './exportPng';
@@ -101,6 +105,49 @@ Lineage {
 }
 `;
 
+/**
+ * Aplica uma lista de impacts ao DBML e retorna o texto atualizado + contagem de refs
+ * efetivamente atualizadas (apenas renames que passaram na validação de ID completo).
+ * Também sincroniza a seleção de coluna no canvas após um rename de coluna (Fix A).
+ *
+ * @param keyColFn - função usada para renomear colunas-chave (com FKs filhas).
+ *   Default: propagateKeyRename (propaga o novo nome às filhas herdadas).
+ *   Passa keepSeparateKeyRename para manter filhas com nome próprio e registrar rolenames.
+ */
+function applyRenames(
+  src: string,
+  impacts: RenameImpact[],
+  migrateTableId: (oldId: string, newId: string) => void,
+  keyColFn: (out: string, table: string, oldCol: string, newCol: string) => string = propagateKeyRename,
+): { dbml: string; appliedRefCount: number } {
+  let out = src;
+  let appliedRefCount = 0;
+  for (const { rename, refCount } of impacts) {
+    if (rename.kind === 'table') {
+      if (isCompleteTableId(rename.oldId) && isCompleteTableId(rename.newId)) {
+        out = renameTable(out, rename.oldId, rename.newId);
+        migrateTableId(rename.oldId, rename.newId);
+        appliedRefCount += refCount; // Fix B: soma só quando efetivamente aplicado
+      }
+    } else if (rename.kind === 'column') {
+      const selCol = useInteraction.getState().selectedColumn;
+      // Usa keyColFn para colunas-chave (com FKs filhas); renameColumnAllRefs para as demais
+      const isKey = classifyChildFks(src, rename.table, rename.oldCol).length > 0;
+      if (isKey) {
+        out = keyColFn(out, rename.table, rename.oldCol, rename.newCol);
+      } else {
+        out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+      }
+      appliedRefCount += refCount;
+      // Fix A: sincroniza selectedColumn no canvas após rename de coluna
+      if (selCol?.table === rename.table && selCol?.column === rename.oldCol) {
+        useInteraction.getState().selectColumn({ table: rename.table, column: rename.newCol });
+      }
+    }
+  }
+  return { dbml: out, appliedRefCount };
+}
+
 export default function App() {
   const [dbml, setDbml] = useState('');
   const [positions, setPositions] = useState<Positions>({});
@@ -121,8 +168,14 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState('');
   const [pinnedProjectId, setPinnedProjectId] = useState<string | null>(null);
+  const [pendingRename, setPendingRename] = useState<{
+    impacts: RenameImpact[];
+    buffer: string;
+    committed: string;
+  } | null>(null);
   const loadedRef = useRef(false);
   const prevDbmlRef = useRef('');
+  const dbmlRef = useRef('');
   const editorRef = useRef<EditorHandle>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout>>();
   const selectColumn = useInteraction((s) => s.selectColumn);
@@ -145,7 +198,7 @@ export default function App() {
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
         const parsed0 = parseDbml(dbml0);
-        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] } : parsed0);
+        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] } : parsed0);
         const pages0 =
           p.canvas?.pages?.length
             ? p.canvas.pages
@@ -226,6 +279,9 @@ export default function App() {
     return () => clearTimeout(commitTimer.current);
   }, [dbml, positions, colors]);
 
+  // Espelha dbml no ref para que handleEditorCommit leia o buffer atual sem re-criar.
+  useEffect(() => { dbmlRef.current = dbml; }, [dbml]);
+
   const applySnapshot = useCallback((s: Snapshot) => {
     clearTimeout(commitTimer.current);
     clearTimeout(renameTimer.current);
@@ -262,13 +318,16 @@ export default function App() {
     setSaveState((s) => (s === 'idle' || s === 'saving' ? s : 'dirty'));
   }, [dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback((explicitDbml?: string) => {
     setSaveState('saving');
     // Salva pelo ID do projeto ativo quando disponível; cai no endpoint legacy senão.
+    // explicitDbml é usado pelo Ctrl+S para garantir que o texto recém-reconciliado seja
+    // persistido mesmo antes que o setDbml(out) do handleEditorCommit seja processado.
+    const dbmlToSave = explicitDbml !== undefined ? explicitDbml : dbml;
     const canvas = { positions, colors, collapsedGroups, pages: canvasPages, activePageIds };
     const saveCall = currentProjectId
-      ? api.saveProjectById(currentProjectId, dbml, canvas)
-      : api.saveProject(dbml, canvas);
+      ? api.saveProjectById(currentProjectId, dbmlToSave, canvas)
+      : api.saveProject(dbmlToSave, canvas);
     saveCall
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('error'));
@@ -281,29 +340,6 @@ export default function App() {
     return () => clearTimeout(id);
   }, [autoSave, saveState, handleSave]);
 
-  // Atalhos capturados ANTES do CodeMirror (cujo history nativo está desativado).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        undo();
-      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
-        e.preventDefault();
-        e.stopPropagation();
-        redo();
-      } else if (k === 's') {
-        e.preventDefault();
-        e.stopPropagation();
-        handleSave();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [undo, redo, handleSave]);
-
   // Parse imediato (validação, editor). Canvas usa parse adiado abaixo.
   const parsed = useMemo(() => parseDbml(dbml), [dbml]);
   const dbmlBlocks = useMemo(() => splitDbmlBlocks(dbml), [dbml]);
@@ -313,14 +349,14 @@ export default function App() {
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
   const [canvasModel, setCanvasModel] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
   });
   useEffect(() => {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
   const [canvasModelDeferred, setCanvasModelDeferred] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
   });
   useEffect(() => {
     if (!parsedDeferred.error) setCanvasModelDeferred(parsedDeferred);
@@ -494,44 +530,67 @@ export default function App() {
     }
   }, []);
 
-  const handleDbmlChange = useCallback(
-    (next: string) => {
-      setDbml(next);
-      clearTimeout(renameTimer.current);
-      renameTimer.current = setTimeout(() => {
-        const prev = prevDbmlRef.current;
-        const detected = detectRenames(prev, next);
-        if (detected.length === 1) {
-          const r = detected[0];
-          if (r.kind === 'table' && r.oldId !== r.newId) {
-            if (!isCompleteTableId(r.oldId) || !isCompleteTableId(r.newId)) {
-              prevDbmlRef.current = next;
-              return;
-            }
-            const propagated = renameTable(next, r.oldId, r.newId);
-            prevDbmlRef.current = propagated;
-            migrateTableId(r.oldId, r.newId);
-            setDbml(propagated);
-            setStatus(`Renomeado ${r.oldId} → ${r.newId} (refs atualizadas)`);
-            return;
-          }
-          if (r.kind === 'column' && r.oldCol !== r.newCol) {
-            const propagated = renameColumnAllRefs(next, r.table, r.oldCol, r.newCol);
-            prevDbmlRef.current = propagated;
-            setDbml(propagated);
-            const sel = useInteraction.getState().selectedColumn;
-            if (sel?.table === r.table && sel.column === r.oldCol) {
-              selectColumn({ table: r.table, column: r.newCol });
-            }
-            setStatus(`Coluna ${r.oldCol} → ${r.newCol} (refs atualizadas)`);
-            return;
-          }
+  const handleDbmlChange = useCallback((next: string) => {
+    setDbml(next);
+  }, []);
+
+  const handleEditorCommit = useCallback((): { openedModal: boolean; reconciledDbml: string | null } => {
+    const committed = prevDbmlRef.current;
+    const buffer = dbmlRef.current; // ref espelhando dbml
+    if (committed === buffer) return { openedModal: false, reconciledDbml: null };
+    const impacts = analyzeRenames(committed, buffer);
+
+    const hasRefImpacts = impacts.some((i) => i.affectsRefs);
+
+    if (hasRefImpacts) {
+      // Qualquer rename afeta refs: abre o modal sem aplicar nada e sem avançar prevDbmlRef.
+      // Assim, se o usuário fechar o modal (onClose), o próximo commit re-detecta e re-prompta.
+      setPendingRename({ impacts, buffer, committed });
+      return { openedModal: true, reconciledDbml: null };
+    }
+
+    // Nenhum rename afeta refs: aplica tudo diretamente
+    const { dbml: out, appliedRefCount } = applyRenames(buffer, impacts, migrateTableId);
+    prevDbmlRef.current = out;
+    if (out !== buffer) {
+      setDbml(out);
+      setStatus(`Edição aplicada (${appliedRefCount} refs atualizadas)`);
+    } else {
+      setStatus('');
+    }
+    return { openedModal: false, reconciledDbml: out };
+  }, [migrateTableId]);
+
+  // Atalhos capturados ANTES do CodeMirror (cujo history nativo está desativado).
+  // Posicionado após handleEditorCommit para evitar referência antes da declaração.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        undo();
+      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+        e.preventDefault();
+        e.stopPropagation();
+        redo();
+      } else if (k === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        // Reconcilia antes de salvar: se houver rename afetando refs, abre o modal e
+        // bloqueia o save até o usuário resolver. Caso contrário, salva o texto reconciliado.
+        const { openedModal, reconciledDbml } = handleEditorCommit();
+        if (openedModal) {
+          setStatus('Confirme a renomeação antes de salvar');
+        } else {
+          handleSave(reconciledDbml ?? undefined);
         }
-        prevDbmlRef.current = next;
-      }, 300);
-    },
-    [migrateTableId, selectColumn],
-  );
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [undo, redo, handleSave, handleEditorCommit]);
 
   const goToLine = useCallback((line: number) => {
     setEditorCollapsed(false);
@@ -858,6 +917,12 @@ export default function App() {
       addFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn, { note, ref }),
     );
   };
+  // Criar mapeamento campo→campo por arraste no canvas (origem e destino explícitos).
+  const handleCreateFieldLineage = (
+    sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
+  ) => {
+    mutateDbml((d) => addFieldLineageEntry(d, sourceTable, sourceColumn, targetTable, targetColumn));
+  };
   const handleRemoveFieldLineage = (
     sourceTable: string, sourceColumn: string, targetTable: string, targetColumn: string,
   ) => {
@@ -994,7 +1059,7 @@ export default function App() {
         const parsed0 = parseDbml(dbml0);
         const groupPages = pagesFromTableGroups(
           parsed0.error
-            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] }
+            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] }
             : parsed0,
         );
         const pages0 =
@@ -1189,7 +1254,7 @@ export default function App() {
         <span className="sep" />
         <button
           className="btn-save"
-          onClick={handleSave}
+          onClick={() => handleSave()}
           disabled={saveState === 'saving' || saveState === 'saved' || saveState === 'idle'}
           title="Salvar (Cmd/Ctrl+S)"
         >
@@ -1242,6 +1307,7 @@ export default function App() {
             ref={editorRef}
             value={dbml}
             onChange={handleDbmlChange}
+            onCommit={handleEditorCommit}
             error={parsed.error}
             errorLine={parsed.errorLine}
             onFocusTable={focusTableWithPan}
@@ -1266,6 +1332,7 @@ export default function App() {
               onCreateLineage={handleCreateLineage}
               onRemoveLineage={handleRemoveLineage}
               onRemoveFieldLineage={handleRemoveFieldLineage}
+              onCreateFieldLineage={handleCreateFieldLineage}
               layerOf={layerOf}
               collapsedGroups={collapsedGroups}
               onToggleGroup={handleToggleGroup}
@@ -1352,6 +1419,32 @@ export default function App() {
           />
         </section>
       </main>
+      {pendingRename && (
+        <RenameConfirmModal
+          impacts={pendingRename.impacts}
+          onApply={() => {
+            const { dbml: out, appliedRefCount } = applyRenames(
+              pendingRename.buffer,
+              pendingRename.impacts,
+              migrateTableId,
+            );
+            prevDbmlRef.current = out;
+            setDbml(out);
+            setStatus(`Edição aplicada (${appliedRefCount} refs atualizadas)`);
+            setPendingRename(null);
+          }}
+          onKeepSeparate={() => {
+            // Mantém filhas herdadas com o nome atual, registrando-as como rolenames.
+            // Reutiliza applyRenames com keepSeparateKeyRename para colunas-chave.
+            const { dbml: out } = applyRenames(pendingRename.buffer, pendingRename.impacts, migrateTableId, keepSeparateKeyRename);
+            prevDbmlRef.current = out;
+            setDbml(out);
+            setStatus('Rolenames registrados — filhas mantêm nome próprio');
+            setPendingRename(null);
+          }}
+          onClose={() => setPendingRename(null)}
+        />
+      )}
     </div>
   );
 }

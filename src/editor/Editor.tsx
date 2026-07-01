@@ -21,21 +21,28 @@ type Props = {
   onGoToError?: () => void;
   /** Cursor moveu — linha 0-based (para sincronizar canvas). */
   onCursorLine?: (line0: number) => void;
+  /** Disparado quando o editor perde foco (commit da edição). */
+  onCommit?: () => void;
 };
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(
-  { value, onChange, error, errorLine, onFocusTable, onGoToError, onCursorLine },
+  { value, onChange, error, errorLine, onFocusTable, onGoToError, onCursorLine, onCommit },
   ref,
 ) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const onCursorLineRef = useRef(onCursorLine);
   onCursorLineRef.current = onCursorLine;
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
 
   const extensions = useMemo(
     () => [
       sql(),
       dbmlFoldExtension,
       cursorLineExtension((line0) => onCursorLineRef.current?.(line0)),
+      EditorView.domEventHandlers({
+        blur: () => { onCommitRef.current?.(); return false; },
+      }),
     ],
     [],
   );

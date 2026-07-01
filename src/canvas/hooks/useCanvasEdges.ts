@@ -33,6 +33,7 @@ export type EdgeBuildInput = {
   relationsVisible: boolean;
   showLineageEdges: boolean;
   fieldLineageVisible: boolean;
+  lineageMode: boolean;
   focusTables: string[];
   focusedFieldMapping: FocusFieldMapping;
   selectedColumn: SelectedColumn;
@@ -67,7 +68,7 @@ function buildStructuralEdges(
 ): Edge[] {
   const {
     parsed, aggregatedCrossLinks, lineage, lineageFields, positions,
-    relationsVisible, showLineageEdges, fieldLineageVisible,
+    relationsVisible, showLineageEdges, fieldLineageVisible, lineageMode,
     focusTables, focusedFieldMapping, selectedColumn,
   } = input;
 
@@ -171,14 +172,17 @@ function buildStructuralEdges(
     ? `fl:${focusedFieldMapping.sourceTable}.${focusedFieldMapping.sourceColumn}->${focusedFieldMapping.targetTable}.${focusedFieldMapping.targetColumn}`
     : null;
   const fieldEdges: Edge[] = [];
-  if (fieldLineageVisible && (focusSet.size > 0 || focusedEdgeId || selectedColumn)) {
+  if (fieldLineageVisible && (lineageMode || focusSet.size > 0 || focusedEdgeId || selectedColumn)) {
     for (const m of lineageFields) {
       const id = `fl:${m.sourceTable}.${m.sourceColumn}->${m.targetTable}.${m.targetColumn}`;
-      const visible = selectedColumn
-        ? m.targetTable === selectedColumn.table || m.sourceTable === selectedColumn.table
-        : focusSet.has(m.targetTable) ||
-          focusSet.has(m.sourceTable) ||
-          id === focusedEdgeId;
+      // No modo linhagem, todas as arestas de campo aparecem (suaves); fora dele, só sob foco/seleção.
+      const visible = lineageMode
+        ? true
+        : selectedColumn
+          ? m.targetTable === selectedColumn.table || m.sourceTable === selectedColumn.table
+          : focusSet.has(m.targetTable) ||
+            focusSet.has(m.sourceTable) ||
+            id === focusedEdgeId;
       if (!visible) continue;
       fieldEdges.push({
         id,
@@ -234,6 +238,7 @@ function applyEdgeHighlight(
   touches: boolean,
   focusActive: boolean,
   selectedColumn: SelectedColumn,
+  lineageMode: boolean,
 ): Edge {
   if (selectedColumn) {
     const tier = edgeFocusTier(e, selectedColumn);
@@ -250,6 +255,17 @@ function applyEdgeHighlight(
         muted: tier === 'secondary' && !e.selected,
         emphasized: tier === 'primary' && !e.selected,
       },
+    };
+  }
+
+  // Modo linhagem: arestas de campo aparecem suaves por padrão e fortes ao tocar a seleção.
+  if (lineageMode && e.type === 'fieldLineage') {
+    const strong = e.selected || touches;
+    return {
+      ...e,
+      animated: false,
+      className: strong ? 'edge--highlight edge--field-lineage' : 'edge--field-lineage edge--field-lineage-soft',
+      data: { ...e.data, highlighted: strong, dimmed: false, muted: false, emphasized: false },
     };
   }
 
@@ -318,6 +334,7 @@ export function useCanvasEdges(
     input.relationsVisible,
     input.showLineageEdges,
     input.fieldLineageVisible,
+    input.lineageMode,
     input.positions,
     fieldFocusKey,
   ].join('\u0001');
@@ -341,6 +358,7 @@ export function useCanvasEdges(
     input.focusTables.join('\u0000'),
     input.selectedColumn?.table ?? '',
     input.selectedColumn?.column ?? '',
+    String(input.lineageMode),
   ].join('\u0001');
 
   // Highlight/de-emphasis: patch leve, sem reconstruir arestas do parsed.
@@ -352,7 +370,7 @@ export function useCanvasEdges(
       const next = prev.map((e) => {
         if (e.type !== 'relation' && e.type !== 'lineage' && e.type !== 'fieldLineage') return e;
         const touches = edgeTouchesFocus(e, cur.focusTables, cur.aggregatedCrossLinks);
-        const patched = applyEdgeHighlight(e, touches, focusActive, cur.selectedColumn);
+        const patched = applyEdgeHighlight(e, touches, focusActive, cur.selectedColumn, cur.lineageMode);
         if (highlightPatchEqual(e, patched)) return e;
         changed = true;
         return patched;
