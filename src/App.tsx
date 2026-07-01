@@ -185,7 +185,7 @@ export default function App() {
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
         const parsed0 = parseDbml(dbml0);
-        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] } : parsed0);
+        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] } : parsed0);
         const pages0 =
           p.canvas?.pages?.length
             ? p.canvas.pages
@@ -356,14 +356,14 @@ export default function App() {
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
   const [canvasModel, setCanvasModel] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
   });
   useEffect(() => {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
   const [canvasModelDeferred, setCanvasModelDeferred] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
   });
   useEffect(() => {
     if (!parsedDeferred.error) setCanvasModelDeferred(parsedDeferred);
@@ -1034,7 +1034,7 @@ export default function App() {
         const parsed0 = parseDbml(dbml0);
         const groupPages = pagesFromTableGroups(
           parsed0.error
-            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [] }
+            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] }
             : parsed0,
         );
         const pages0 =

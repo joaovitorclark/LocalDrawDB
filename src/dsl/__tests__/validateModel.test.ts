@@ -42,6 +42,7 @@ Ref: b.x > a.id
       layerGroups: [],
       lineage: [],
       lineageFields: [],
+      rolenames: [],
     };
     const issues = validateModel(m);
     expect(
