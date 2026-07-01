@@ -32,6 +32,8 @@ import { useInteraction } from './store/interaction';
 import { analyzeRenames } from './dsl/reconcile';
 import type { RenameImpact } from './dsl/reconcile';
 import { isCompleteTableId } from './dsl/edit';
+import { classifyChildFks } from './dsl/rolename';
+import { propagateKeyRename, keepSeparateKeyRename } from './dsl/propagateKeyRename';
 import { RenameConfirmModal } from './editor/RenameConfirmModal';
 import { resolveTableId, tableAtLine } from './dsl/lineLocate';
 import { shouldPanToTable, shouldSyncEditorTable, type FocusTableOptions } from './editor/syncEditorCanvas';
@@ -124,7 +126,13 @@ function applyRenames(
       }
     } else if (rename.kind === 'column') {
       const selCol = useInteraction.getState().selectedColumn;
-      out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+      // Usa propagateKeyRename para colunas-chave (com FKs filhas); renameColumnAllRefs para as demais
+      const isKey = classifyChildFks(src, rename.table, rename.oldCol).length > 0;
+      if (isKey) {
+        out = propagateKeyRename(out, rename.table, rename.oldCol, rename.newCol);
+      } else {
+        out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+      }
       appliedRefCount += refCount;
       // Fix A: sincroniza selectedColumn no canvas após rename de coluna
       if (selCol?.table === rename.table && selCol?.column === rename.oldCol) {
@@ -1408,8 +1416,34 @@ export default function App() {
             setPendingRename(null);
           }}
           onKeepSeparate={() => {
-            // TODO(v14-02): registrar rolename (Task 10)
-            prevDbmlRef.current = pendingRename.buffer;
+            // Mantém filhas herdadas com o nome atual, registrando-as como rolenames.
+            // Mesma lógica que onApply, mas usa keepSeparateKeyRename para colunas-chave.
+            const origSrc = pendingRename.buffer;
+            let out = origSrc;
+            for (const { rename } of pendingRename.impacts) {
+              if (rename.kind === 'table') {
+                // Rename de tabela: rolename não se aplica a tabelas — comportamento igual ao onApply
+                if (isCompleteTableId(rename.oldId) && isCompleteTableId(rename.newId)) {
+                  out = renameTable(out, rename.oldId, rename.newId);
+                  migrateTableId(rename.oldId, rename.newId);
+                }
+              } else if (rename.kind === 'column') {
+                const selCol = useInteraction.getState().selectedColumn;
+                const isKey = classifyChildFks(origSrc, rename.table, rename.oldCol).length > 0;
+                if (isKey) {
+                  out = keepSeparateKeyRename(out, rename.table, rename.oldCol, rename.newCol);
+                } else {
+                  out = renameColumnAllRefs(out, rename.table, rename.oldCol, rename.newCol);
+                }
+                // Fix A: sincroniza selectedColumn no canvas após rename de coluna
+                if (selCol?.table === rename.table && selCol?.column === rename.oldCol) {
+                  useInteraction.getState().selectColumn({ table: rename.table, column: rename.newCol });
+                }
+              }
+            }
+            prevDbmlRef.current = out;
+            setDbml(out);
+            setStatus('Rolenames registrados — filhas mantêm nome próprio');
             setPendingRename(null);
           }}
           onClose={() => setPendingRename(null)}
