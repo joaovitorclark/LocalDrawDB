@@ -289,6 +289,7 @@ export function Canvas(props: Props) {
     relationsVisible,
     showLineageEdges,
     fieldLineageVisible,
+    lineageMode,
     focusTables,
     focusedFieldMapping,
     selectedColumn,

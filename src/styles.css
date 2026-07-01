@@ -1613,6 +1613,10 @@ body {
 .react-flow__edge.edge--field-lineage.edge--highlight path {
   filter: drop-shadow(0 0 3px #8b5cf6);
 }
+/* Modo linhagem: arestas de campo suaves por padrão (fortes só ao selecionar a tabela). */
+.react-flow__edge.edge--field-lineage-soft path {
+  opacity: 0.32 !important;
+}
 .react-flow__edge.edge--field-lineage.selected path.field-lineage-edge__core {
   filter: drop-shadow(0 0 4px #e879f9) drop-shadow(0 0 10px #c026d3) drop-shadow(0 0 18px rgba(168, 85, 247, 0.85));
   animation: field-lineage-neon 1.6s ease-in-out infinite;
