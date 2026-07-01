@@ -31,8 +31,7 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
   const lineageVisible = useInteraction((s) => s.lineageVisible);
   const toggleLineageVisible = useInteraction((s) => s.toggleLineageVisible);
   const lineageMode = useInteraction((s) => s.lineageMode);
-  // mapeamento campo→campo escondido (v14-03) — reativar no futuro
-  // const toggleLineageMode = useInteraction((s) => s.toggleLineageMode);
+  const toggleLineageMode = useInteraction((s) => s.toggleLineageMode);
   const relationsVisible = useInteraction((s) => s.relationsVisible);
   const toggleRelationsVisible = useInteraction((s) => s.toggleRelationsVisible);
   const fieldLineageVisible = useInteraction((s) => s.fieldLineageVisible);
@@ -125,8 +124,7 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
             <input type="checkbox" checked={fieldLineageVisible} onChange={toggleFieldLineageVisible} />
             Mostrar linhagem de campos
           </label>
-          {/* mapeamento campo→campo escondido (v14-03) — reativar no futuro */}
-          {/* <button
+          <button
             type="button"
             className={`layers-panel__lineage-btn ${lineageMode ? 'is-active' : ''}`}
             onClick={toggleLineageMode}
@@ -139,7 +137,7 @@ export function LayersPanel({ layers, tables, onAddLayer, onFocusTable, onAutola
               Arraste entre os pontos nas bordas. Relacionamentos desligam automaticamente.
               Organizar canvas empilha TableGroups por camada (bronze→ouro), maiores à esquerda dentro de cada grupo.
             </p>
-          )} */}
+          )}
 
           <div className="layers-panel__sep" />
           <div className="layers-panel__title">Tabelas</div>
