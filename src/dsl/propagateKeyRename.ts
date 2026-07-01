@@ -42,9 +42,10 @@ export function keepSeparateKeyRename(src: string, parentTable: string, oldCol: 
   const newQ = `${pt}.${newCol}`;
   out = out.replace(new RegExp(`(?<![\\w.])${escapeRegex(oldQ)}(?![\\w])`, 'g'), newQ);
 
-  // 3) filhas herdadas mantêm o nome atual; registra rolename para cada uma
+  // 3) filhas herdadas e divergentes mantêm o nome atual; registra rolename para cada uma
+  //    (rolename já existente é ignorado — skip para evitar duplicata)
   for (const d of decisions) {
-    if (d.kind !== 'inherited') continue;
+    if (d.kind === 'rolename') continue;
     // Não renomeia a filha — grava rolename apontando para o novo nome da mãe
     out = addRolename(out, d.child, { table: pt, column: newCol });
   }

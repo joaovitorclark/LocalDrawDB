@@ -319,13 +319,16 @@ export default function App() {
     setSaveState((s) => (s === 'idle' || s === 'saving' ? s : 'dirty'));
   }, [dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback((explicitDbml?: string) => {
     setSaveState('saving');
     // Salva pelo ID do projeto ativo quando disponível; cai no endpoint legacy senão.
+    // explicitDbml é usado pelo Ctrl+S para garantir que o texto recém-reconciliado seja
+    // persistido mesmo antes que o setDbml(out) do handleEditorCommit seja processado.
+    const dbmlToSave = explicitDbml !== undefined ? explicitDbml : dbml;
     const canvas = { positions, colors, collapsedGroups, pages: canvasPages, activePageIds };
     const saveCall = currentProjectId
-      ? api.saveProjectById(currentProjectId, dbml, canvas)
-      : api.saveProject(dbml, canvas);
+      ? api.saveProjectById(currentProjectId, dbmlToSave, canvas)
+      : api.saveProject(dbmlToSave, canvas);
     saveCall
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('error'));
@@ -337,29 +340,6 @@ export default function App() {
     const id = setTimeout(handleSave, 1500);
     return () => clearTimeout(id);
   }, [autoSave, saveState, handleSave]);
-
-  // Atalhos capturados ANTES do CodeMirror (cujo history nativo está desativado).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        undo();
-      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
-        e.preventDefault();
-        e.stopPropagation();
-        redo();
-      } else if (k === 's') {
-        e.preventDefault();
-        e.stopPropagation();
-        handleSave();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [undo, redo, handleSave]);
 
   // Parse imediato (validação, editor). Canvas usa parse adiado abaixo.
   const parsed = useMemo(() => parseDbml(dbml), [dbml]);
@@ -555,29 +535,23 @@ export default function App() {
     setDbml(next);
   }, []);
 
-  const handleEditorCommit = useCallback(() => {
+  const handleEditorCommit = useCallback((): { openedModal: boolean; reconciledDbml: string | null } => {
     const committed = prevDbmlRef.current;
     const buffer = dbmlRef.current; // ref espelhando dbml
-    if (committed === buffer) return;
+    if (committed === buffer) return { openedModal: false, reconciledDbml: null };
     const impacts = analyzeRenames(committed, buffer);
 
-    const refImpacts = impacts.filter((i) => i.affectsRefs);
-    const directImpacts = impacts.filter((i) => !i.affectsRefs);
+    const hasRefImpacts = impacts.some((i) => i.affectsRefs);
 
-    // Aplica diretamente os renames sem referências
-    const { dbml: out, appliedRefCount } = applyRenames(buffer, directImpacts, migrateTableId);
-
-    if (refImpacts.length > 0) {
-      // Há renames com refs: atualiza DBML com renames diretos já aplicados e abre o modal
-      if (out !== buffer) {
-        prevDbmlRef.current = out;
-        setDbml(out);
-      }
-      setPendingRename({ impacts: refImpacts, buffer: out, committed });
-      return;
+    if (hasRefImpacts) {
+      // Qualquer rename afeta refs: abre o modal sem aplicar nada e sem avançar prevDbmlRef.
+      // Assim, se o usuário fechar o modal (onClose), o próximo commit re-detecta e re-prompta.
+      setPendingRename({ impacts, buffer, committed });
+      return { openedModal: true, reconciledDbml: null };
     }
 
-    // Sem renames com refs: aplica tudo e fecha
+    // Nenhum rename afeta refs: aplica tudo diretamente
+    const { dbml: out, appliedRefCount } = applyRenames(buffer, impacts, migrateTableId);
     prevDbmlRef.current = out;
     if (out !== buffer) {
       setDbml(out);
@@ -585,7 +559,39 @@ export default function App() {
     } else {
       setStatus('');
     }
+    return { openedModal: false, reconciledDbml: out };
   }, [migrateTableId]);
+
+  // Atalhos capturados ANTES do CodeMirror (cujo history nativo está desativado).
+  // Posicionado após handleEditorCommit para evitar referência antes da declaração.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        undo();
+      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+        e.preventDefault();
+        e.stopPropagation();
+        redo();
+      } else if (k === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        // Reconcilia antes de salvar: se houver rename afetando refs, abre o modal e
+        // bloqueia o save até o usuário resolver. Caso contrário, salva o texto reconciliado.
+        const { openedModal, reconciledDbml } = handleEditorCommit();
+        if (openedModal) {
+          setStatus('Confirme a renomeação antes de salvar');
+        } else {
+          handleSave(reconciledDbml ?? undefined);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [undo, redo, handleSave, handleEditorCommit]);
 
   const goToLine = useCallback((line: number) => {
     setEditorCollapsed(false);
@@ -1243,7 +1249,7 @@ export default function App() {
         <span className="sep" />
         <button
           className="btn-save"
-          onClick={handleSave}
+          onClick={() => handleSave()}
           disabled={saveState === 'saving' || saveState === 'saved' || saveState === 'idle'}
           title="Salvar (Cmd/Ctrl+S)"
         >
