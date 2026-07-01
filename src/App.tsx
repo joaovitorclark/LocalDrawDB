@@ -31,7 +31,7 @@ import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { analyzeRenames } from './dsl/reconcile';
 import type { RenameImpact } from './dsl/reconcile';
-import { isCompleteTableId } from './dsl/edit';
+import { isCompleteTableId, setTableColor } from './dsl/edit';
 import { classifyChildFks } from './dsl/rolename';
 import { propagateKeyRename, keepSeparateKeyRename } from './dsl/propagateKeyRename';
 import { RenameConfirmModal } from './editor/RenameConfirmModal';
@@ -226,7 +226,7 @@ export default function App() {
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
         const parsed0 = parseDbml(dbml0);
-        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] } : parsed0);
+        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {} } : parsed0);
         const pages0 =
           p.canvas?.pages?.length
             ? p.canvas.pages
@@ -377,14 +377,14 @@ export default function App() {
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
   const [canvasModel, setCanvasModel] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {},
   });
   useEffect(() => {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
   const [canvasModelDeferred, setCanvasModelDeferred] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {},
   });
   useEffect(() => {
     if (!parsedDeferred.error) setCanvasModelDeferred(parsedDeferred);
@@ -852,7 +852,7 @@ export default function App() {
         resourceType: t.resourceType, materialization: t.materialization, tags: t.tags,
         has,
       };
-      const headerColor = colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
+      const headerColor = model.colors[t.id] ?? colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
       const externalLinks = externalLinksByTable.get(t.id);
       const linked = linkedByTable.get(t.id);
       map.set(t.id, {
@@ -888,13 +888,7 @@ export default function App() {
       onRemoveTable: handleRemoveTable,
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
       colorOf: (id) => colorsRef.current[id],
-      onSetColor: (id, color) =>
-        setColors((prev) => {
-          const next = { ...prev };
-          if (color) next[id] = color;
-          else delete next[id];
-          return next;
-        }),
+      onSetColor: (id, color) => setDbml((d) => setTableColor(d, id, color)),
       layerOf,
       layerColorOf: (layerId) => layerColorOf(layersArrRef.current, layerId),
       onSetLayer: (id, layerId) =>
@@ -1087,7 +1081,7 @@ export default function App() {
         const parsed0 = parseDbml(dbml0);
         const groupPages = pagesFromTableGroups(
           parsed0.error
-            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] }
+            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {} }
             : parsed0,
         );
         const pages0 =
