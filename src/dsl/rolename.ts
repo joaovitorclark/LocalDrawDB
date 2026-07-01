@@ -14,17 +14,24 @@ function collectFks(src: string): { child: FkChild; parent: FkChild }[] {
   const blocks = splitDbmlBlocks(src);
   for (const b of blocks) {
     if (b.type === 'ref') {
-      const m = /Ref:?\s*([^\s<>-]+)\s*[<>-]+\s*([^\s\[]+)/i.exec(b.text.replace(/["`]/g, ''));
+      // Captura o operador para detectar cardinalidade < (filho à direita)
+      const m = /Ref:?\s*([^\s<>-]+)\s*([<>-]+)\s*([^\s\[]+)/i.exec(b.text.replace(/["`]/g, ''));
       if (m) {
-        const a = splitTableColumn(m[1]);
-        const c = splitTableColumn(m[2]);
-        if (a && c) out.push({ child: a, parent: c });
+        const left = splitTableColumn(m[1]);
+        const right = splitTableColumn(m[3]);
+        const op = m[2];
+        if (left && right) {
+          // Ref: A < B → B é filho (FK), A é pai
+          const swap = op.includes('<') && !op.includes('>');
+          out.push(swap ? { child: right, parent: left } : { child: left, parent: right });
+        }
       }
     }
     if (b.type === 'table') {
       const tbl = strip(b.name ?? '');
       for (const line of b.text.split('\n')) {
-        const fm = /^\s*("?[A-Za-z_][\w]*"?)\s+.*\[.*ref:\s*>\s*([^\s,\]]+)/i.exec(line);
+        // Aceita nomes com aspas duplas ou backtick
+        const fm = /^\s*([`"]?[A-Za-z_][\w]*[`"]?)\s+.*\[.*ref:\s*>\s*([^\s,\]]+)/i.exec(line);
         if (fm) {
           const p = splitTableColumn(fm[2].replace(/["`]/g, ''));
           if (p) out.push({ child: { table: tbl, column: strip(fm[1]) }, parent: p });
