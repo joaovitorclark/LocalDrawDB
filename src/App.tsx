@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue, startTransition, type MouseEvent as ReactMouseEvent } from 'react';
 import { Editor, type EditorHandle } from './editor/Editor';
 import { Canvas } from './canvas/Canvas';
 import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from './dsl/parse';
@@ -163,6 +163,34 @@ export default function App() {
   const [focusTableId, setFocusTableId] = useState<string | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const [editorWidth, setEditorWidth] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem('ldb.editorWidth'));
+    return saved > 0 ? saved : null; // null = usa o default do CSS (40%)
+  });
+  const [resizingEditor, setResizingEditor] = useState(false);
+  const panesRef = useRef<HTMLElement>(null);
+  const startEditorResize = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const panes = panesRef.current;
+    if (!panes) return;
+    const rect = panes.getBoundingClientRect();
+    setResizingEditor(true);
+    const onMove = (ev: globalThis.MouseEvent) => {
+      const w = Math.max(240, Math.min(ev.clientX - rect.left, rect.width - 320));
+      setEditorWidth(w);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setResizingEditor(false);
+      setEditorWidth((w) => {
+        if (w) localStorage.setItem('ldb.editorWidth', String(Math.round(w)));
+        return w;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
   // Estado multi-projetos (F2)
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
@@ -1285,8 +1313,14 @@ export default function App() {
         </span>
       </header>
 
-      <main className={`panes ${editorCollapsed ? 'panes--editor-collapsed' : ''}`}>
-        <section className="pane pane--editor">
+      <main
+        ref={panesRef}
+        className={`panes ${editorCollapsed ? 'panes--editor-collapsed' : ''}${resizingEditor ? ' panes--resizing' : ''}`}
+      >
+        <section
+          className="pane pane--editor"
+          style={editorWidth && !editorCollapsed ? { width: editorWidth } : undefined}
+        >
           <button
             type="button"
             className="pane-collapse"
@@ -1315,6 +1349,15 @@ export default function App() {
             onGoToError={() => setEditorCollapsed(false)}
           />
         </section>
+        {!editorCollapsed && (
+          <div
+            className="pane-resizer"
+            onMouseDown={startEditorResize}
+            title="Arraste para redimensionar o editor"
+            role="separator"
+            aria-orientation="vertical"
+          />
+        )}
         <section className="pane pane--canvas">
           <CanvasActionsCtx.Provider value={actions}>
             <Canvas

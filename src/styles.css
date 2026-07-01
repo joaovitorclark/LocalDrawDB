@@ -160,6 +160,7 @@ body {
 .pane--editor {
   position: relative;
   width: 40%;
+  flex: 0 0 auto;
   border-right: 1px solid var(--border);
   display: flex;
   overflow: hidden;
@@ -201,10 +202,30 @@ body {
   left: 3px;
 }
 .pane--canvas {
-  width: 60%;
+  flex: 1 1 0;
+  min-width: 0;
   background: var(--canvas-bg);
   transition: width 0.18s ease;
   position: relative;
+}
+/* Splitter arrastável entre editor e canvas (#4) */
+.pane-resizer {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 25;
+}
+.pane-resizer:hover,
+.panes--resizing .pane-resizer {
+  background: var(--brand-green, #16a34a);
+}
+.panes--resizing .pane--editor,
+.panes--resizing .pane--canvas {
+  transition: none;
+}
+.panes--resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 .canvas-wrap {
   width: 100%;
