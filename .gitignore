@@ -27,3 +27,6 @@ npm-debug.log*
 .env
 .env.local
 .localdrawdb-dev.json
+
+# Backlog local (planejamento privado — não vai pro remoto)
+spec/backlog/
