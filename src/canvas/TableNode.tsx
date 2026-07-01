@@ -159,6 +159,7 @@ function TableNodeImpl({ data }: { data: TableNodeData }) {
           columns={data.columns}
           selectedColumn={selectedColumn}
           fieldLineageVisible={fieldLineageVisible}
+          lineageMode={lineageMode}
           editing={editing}
           draft={draft}
           onSelect={(column, altKey) => {
