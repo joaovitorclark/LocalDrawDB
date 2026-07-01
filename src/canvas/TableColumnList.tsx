@@ -48,7 +48,9 @@ function ColumnRowContent({
         onSelect(c.name, e.altKey);
       }}
     >
-      <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" isConnectable={!lineageMode} />
+      {!lineageMode && (
+        <Handle type="target" position={Position.Left} id={`t:${c.name}`} className="col-handle nodrag nopan" />
+      )}
       {fieldLineageVisible && (
         <Handle
           type="target"
@@ -84,7 +86,9 @@ function ColumnRowContent({
         </span>
       )}
       <span className="col-type">{c.type}</span>
-      <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" isConnectable={!lineageMode} />
+      {!lineageMode && (
+        <Handle type="source" position={Position.Right} id={`s:${c.name}`} className="col-handle nodrag nopan" />
+      )}
       {fieldLineageVisible && (
         <Handle
           type="source"
