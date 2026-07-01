@@ -14,7 +14,8 @@ import {
 } from './dsl/edit';
 import { RecordsPanel } from './records/RecordsPanel';
 import { ColumnPanel } from './canvas/ColumnPanel';
-import { FieldLineagePanel } from './canvas/FieldLineagePanel';
+// mapeamento campo→campo escondido (v14-03) — reativar no futuro
+// import { FieldLineagePanel } from './canvas/FieldLineagePanel';
 import { CanvasActionsCtx, type CanvasActions, type TableMeta } from './canvas/actions';
 import { LayersPanel } from './canvas/LayersPanel';
 import { PagesPanel } from './canvas/PagesPanel';
@@ -1383,7 +1384,8 @@ export default function App() {
               onAutolayout={handleAutolayout}
             />
             <ProblemsPanel issues={modelIssues} onFocusTable={focusTableWithPan} onGoToLine={goToLine} />
-            <FieldLineagePanel
+            {/* mapeamento campo→campo escondido (v14-03) — reativar no futuro */}
+            {/* <FieldLineagePanel
               tables={activeModel.tables}
               mappings={activeModel.lineageFields ?? []}
               onAdd={handleAddFieldLineage}
@@ -1392,7 +1394,7 @@ export default function App() {
                 const tt = useInteraction.getState().selectedTable;
                 if (tt) handleRemoveFieldLineage(st, sc, tt, tc);
               }}
-            />
+            /> */}
           </CanvasActionsCtx.Provider>
           <RecordsPanel
             records={activeModel.records}
