@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { quoteDbmlNote, sanitizeDbmlNoteText } from '../dbmlNotes';
 import { setTableOrRecordsNote } from '../edit';
+import { parseDbml } from '../parse';
+
+describe('Note em qualquer lugar do bloco Table (#10)', () => {
+  it('aceita Note: no meio das colunas (sem erro, note reconhecida)', () => {
+    const src = `Table t {
+  id int [pk]
+  Note: 'no meio'
+  nome string
+}`;
+    const r = parseDbml(src);
+    expect(r.error).toBeUndefined();
+    expect(r.tables[0]?.note).toBe('no meio');
+    expect(r.tables[0]?.columns.map((c) => c.name)).toEqual(['id', 'nome']);
+  });
+
+  it('ainda aceita Note: no fim', () => {
+    const r = parseDbml("Table t {\n  id int\n  Note: 'no fim'\n}");
+    expect(r.error).toBeUndefined();
+    expect(r.tables[0]?.note).toBe('no fim');
+  });
+});
 
 describe('dbmlNotes', () => {
   it('escapa aspas simples', () => {
