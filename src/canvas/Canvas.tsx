@@ -277,8 +277,10 @@ export function Canvas(props: Props) {
       if (groupHidden || (layerOff && !layerDimMode)) hidden.add(t.id);
       else if (layerOff && layerDimMode) dimmed.add(t.id);
     }
-    return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, onToggleGroup };
-  }, [parsed.tables, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
+    const groupColors: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed.colors)) if (k.startsWith('@')) groupColors[k.slice(1)] = v;
+    return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, groupColors, onToggleGroup };
+  }, [parsed.tables, parsed.colors, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
 
   useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds, sizes);
 

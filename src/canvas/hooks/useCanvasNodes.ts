@@ -26,6 +26,7 @@ export type NodeOpts = {
   collapsedGroups: Set<string>;
   hiddenTables: Set<string>; // escondidas (camada oculta ou grupo colapsado)
   dimmedTables: Set<string>; // esmaecidas (camada em modo esmaecer)
+  groupColors: Record<string, string>; // cor por TableGroup (nome -> hex)
   onToggleGroup: (name: string) => void;
 };
 
@@ -104,7 +105,7 @@ function groupNodes(
       id: `group:${name}`,
       type: 'group',
       position: { x: minX - pad, y: minY - pad - 16 },
-      data: { label: name, collapsed, count: boxes.length, onToggle: () => opts.onToggleGroup(name) },
+      data: { label: name, collapsed, count: boxes.length, color: opts.groupColors[name], onToggle: () => opts.onToggleGroup(name) },
       draggable: true,
       dragHandle: '.group-node__drag-handle',
       selectable: false,

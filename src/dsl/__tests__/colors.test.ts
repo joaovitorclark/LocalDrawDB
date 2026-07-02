@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { splitDbmlBlocks } from '../blocks';
 import { parseColorsBlock, cleanDbml } from '../dbmlClean';
 import { parseDbml } from '../parse';
-import { setTableColor } from '../edit';
+import { setTableColor, setGroupColor } from '../edit';
 
 describe('bloco Colors', () => {
   it('tokeniza como colors', () => {
@@ -40,5 +40,18 @@ describe('setTableColor', () => {
     const a = setTableColor('', 't', '#111111');
     const out = setTableColor(a, 't', null);
     expect(out).not.toMatch(/Colors/i);
+  });
+});
+
+describe('cor de grupo (TableGroup)', () => {
+  it('setGroupColor grava @grupo no bloco Colors', () => {
+    const out = setGroupColor('Table t {\n  id int\n}\n', 'fatos_largos', '#b08d57');
+    expect(out).toContain('@fatos_largos: #b08d57');
+  });
+  it('parseDbml expõe a cor de grupo em colors["@grupo"] sem colidir com tabela', () => {
+    const src = 'Table t {\n  id int\n}\nColors {\n  t: #111111\n  @fatos_largos: #b08d57\n}';
+    const c = parseDbml(src).colors;
+    expect(c['t']).toBe('#111111');
+    expect(c['@fatos_largos']).toBe('#b08d57');
   });
 });

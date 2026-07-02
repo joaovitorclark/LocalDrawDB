@@ -682,11 +682,12 @@ export function removeRolename(src: string, child: { table: string; column: stri
 }
 
 /** Grava a cor de uma tabela no bloco `Colors {}` (ou remove com color=null). */
-export function setTableColor(src: string, tableId: string, color: string | null): string {
+/** Grava/remove uma entrada `key: color` no bloco Colors {}. key = id de tabela ou `@grupo`. */
+function setColorEntry(src: string, key: string, color: string | null): string {
   const blocks = splitDbmlBlocks(src);
   const block = blocks.find((b) => b.type === 'colors');
-  const line = `  ${tableId}: ${color}`;
-  const matches = (l: string) => stripQuotes(l.trim().split(':')[0] ?? '') === stripQuotes(tableId);
+  const line = `  ${key}: ${color}`;
+  const matches = (l: string) => stripQuotes(l.trim().split(':')[0] ?? '') === stripQuotes(key);
   if (block) {
     const kept = block.text.split('\n').filter((l) => {
       const t = l.trim();
@@ -705,4 +706,14 @@ export function setTableColor(src: string, tableId: string, color: string | null
   }
   if (!color) return src;
   return `${src.replace(/\n+$/, '')}\n\nColors {\n${line}\n}\n`.replace(/^\n+/, '');
+}
+
+/** Cor de uma tabela no bloco Colors {}. */
+export function setTableColor(src: string, tableId: string, color: string | null): string {
+  return setColorEntry(src, tableId, color);
+}
+
+/** Cor de um TableGroup no bloco Colors {} (chave prefixada com `@`). */
+export function setGroupColor(src: string, group: string, color: string | null): string {
+  return setColorEntry(src, `@${group}`, color);
 }

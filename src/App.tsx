@@ -31,7 +31,7 @@ import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { analyzeRenames } from './dsl/reconcile';
 import type { RenameImpact } from './dsl/reconcile';
-import { isCompleteTableId, setTableColor } from './dsl/edit';
+import { isCompleteTableId, setTableColor, setGroupColor } from './dsl/edit';
 import { classifyChildFks } from './dsl/rolename';
 import { propagateKeyRename, keepSeparateKeyRename } from './dsl/propagateKeyRename';
 import { RenameConfirmModal } from './editor/RenameConfirmModal';
@@ -892,6 +892,7 @@ export default function App() {
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
       colorOf: (id) => colorsRef.current[id],
       onSetColor: (id, color) => setDbml((d) => setTableColor(d, id, color)),
+      onSetGroupColor: (group, color) => setDbml((d) => setGroupColor(d, group, color)),
       onResizeTable: (id, width) => setSizes((prev) => ({ ...prev, [id]: Math.round(width) })),
       layerOf,
       layerColorOf: (layerId) => layerColorOf(layersArrRef.current, layerId),

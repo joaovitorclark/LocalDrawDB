@@ -686,7 +686,7 @@ body {
 .group-node {
   width: 100%;
   height: 100%;
-  border: 1.5px dashed var(--brand-navy-700);
+  border: 1.5px dashed var(--group-color, var(--brand-navy-700));
   border-radius: 10px;
   background: rgba(28, 58, 107, 0.06);
   pointer-events: none;
@@ -728,7 +728,7 @@ body {
   position: absolute;
   top: -10px;
   left: 12px;
-  background: var(--brand-navy-700);
+  background: var(--group-color, var(--brand-navy-700));
   color: #fff;
   font-size: 11px;
   font-weight: 600;
@@ -746,6 +746,25 @@ body {
   cursor: pointer;
   font-size: 10px;
   padding: 0;
+}
+.group-node__color {
+  background: transparent;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 1px;
+  opacity: 0.85;
+  pointer-events: auto;
+}
+.group-node__color:hover {
+  opacity: 1;
+}
+.color-palette--group {
+  left: 0;
+  right: auto;
+  top: 22px;
+  pointer-events: auto;
 }
 .group-node.is-collapsed {
   background: rgba(28, 58, 107, 0.12);
