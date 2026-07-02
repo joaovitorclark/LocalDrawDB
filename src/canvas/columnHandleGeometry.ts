@@ -19,7 +19,9 @@ const PORT_INSET = 8;
 export type ColumnAnchorKind = 'row' | 'above' | 'below';
 
 export function needsScrollAwareHandles(data: TableNodeData | undefined): boolean {
-  return !!data && data.columns.length > COLUMN_VIRTUALIZE_THRESHOLD;
+  // Guarda `columns`: nós stub (grupos externos agregados) têm data sem columns
+  // e não devem crashar o render de arestas ao filtrar por página/grupo.
+  return !!data?.columns && data.columns.length > COLUMN_VIRTUALIZE_THRESHOLD;
 }
 
 export function columnScrollViewport(data: TableNodeData): { top: number; bottom: number; center: number } {

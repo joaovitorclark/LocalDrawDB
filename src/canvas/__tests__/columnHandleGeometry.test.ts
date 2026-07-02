@@ -5,10 +5,25 @@ import {
   columnAnchorY,
   columnScrollViewport,
   COLUMN_SCROLL_VIEW_H,
+  needsScrollAwareHandles,
   TABLE_FOOTER_H,
   TABLE_HEADER_H,
   tableBodyHeight,
 } from '../columnHandleGeometry';
+
+describe('needsScrollAwareHandles', () => {
+  it('não crasha com data sem columns (nó stub ao filtrar por grupo)', () => {
+    // Regressão: filtrar pra um grupo processava um stub (data sem columns) -> tela preta.
+    expect(needsScrollAwareHandles({ label: 'stub' } as unknown as TableNodeData)).toBe(false);
+    expect(needsScrollAwareHandles(undefined)).toBe(false);
+  });
+  it('true quando há muitas colunas', () => {
+    const cols = Array.from({ length: COLUMN_VIRTUALIZE_THRESHOLD + 1 }, (_, i) => ({
+      name: 'c' + i, type: 'int', pk: false, notNull: false,
+    }));
+    expect(needsScrollAwareHandles({ columns: cols } as unknown as TableNodeData)).toBe(true);
+  });
+});
 
 const PORT_INSET = 8;
 
