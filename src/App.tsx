@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue, startTransition, type MouseEvent as ReactMouseEvent } from 'react';
 import { Editor, type EditorHandle } from './editor/Editor';
 import { Canvas } from './canvas/Canvas';
 import { METADATA_SNIPPET, newTableTemplate, parseDbml, type ParseResult } from './dsl/parse';
@@ -31,7 +31,7 @@ import { layersFromGroups, tableLayerMap, layerColorOf } from './layers';
 import { useInteraction } from './store/interaction';
 import { analyzeRenames } from './dsl/reconcile';
 import type { RenameImpact } from './dsl/reconcile';
-import { isCompleteTableId } from './dsl/edit';
+import { isCompleteTableId, setTableColor, setGroupColor } from './dsl/edit';
 import { classifyChildFks } from './dsl/rolename';
 import { propagateKeyRename, keepSeparateKeyRename } from './dsl/propagateKeyRename';
 import { RenameConfirmModal } from './editor/RenameConfirmModal';
@@ -151,6 +151,7 @@ function applyRenames(
 export default function App() {
   const [dbml, setDbml] = useState('');
   const [positions, setPositions] = useState<Positions>({});
+  const [sizes, setSizes] = useState<Record<string, number>>({});
   const [colors, setColors] = useState<Colors>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [canvasPages, setCanvasPages] = useState<CanvasPage[]>([allTablesPage()]);
@@ -163,6 +164,34 @@ export default function App() {
   const [focusTableId, setFocusTableId] = useState<string | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const [editorWidth, setEditorWidth] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem('ldb.editorWidth'));
+    return saved > 0 ? saved : null; // null = usa o default do CSS (40%)
+  });
+  const [resizingEditor, setResizingEditor] = useState(false);
+  const panesRef = useRef<HTMLElement>(null);
+  const startEditorResize = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const panes = panesRef.current;
+    if (!panes) return;
+    const rect = panes.getBoundingClientRect();
+    setResizingEditor(true);
+    const onMove = (ev: globalThis.MouseEvent) => {
+      const w = Math.max(240, Math.min(ev.clientX - rect.left, rect.width - 320));
+      setEditorWidth(w);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setResizingEditor(false);
+      setEditorWidth((w) => {
+        if (w) localStorage.setItem('ldb.editorWidth', String(Math.round(w)));
+        return w;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
   // Estado multi-projetos (F2)
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
@@ -198,7 +227,7 @@ export default function App() {
         const pos0 = p.canvas?.positions ?? {};
         const col0 = p.canvas?.colors ?? {};
         const parsed0 = parseDbml(dbml0);
-        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] } : parsed0);
+        const groupPages = pagesFromTableGroups(parsed0.error ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {} } : parsed0);
         const pages0 =
           p.canvas?.pages?.length
             ? p.canvas.pages
@@ -209,6 +238,7 @@ export default function App() {
         startTransition(() => {
           setDbml(dbml0);
           setPositions(pos0);
+          setSizes(p.canvas?.sizes ?? {});
           setColors(col0);
           setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
           setCanvasPages(pages0);
@@ -237,6 +267,7 @@ export default function App() {
             setDbml(dbml0);
             prevDbmlRef.current = dbml0;
             setPositions(pos0);
+            setSizes(p.canvas?.sizes ?? {});
             setColors(col0);
             setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
             baselineRef.current = { dbml: dbml0, positions: pos0, colors: col0 };
@@ -316,7 +347,7 @@ export default function App() {
   useEffect(() => {
     if (!loadedRef.current) return;
     setSaveState((s) => (s === 'idle' || s === 'saving' ? s : 'dirty'));
-  }, [dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
+  }, [dbml, positions, sizes, colors, collapsedGroups, canvasPages, activePageIds]);
 
   const handleSave = useCallback((explicitDbml?: string) => {
     setSaveState('saving');
@@ -324,14 +355,14 @@ export default function App() {
     // explicitDbml é usado pelo Ctrl+S para garantir que o texto recém-reconciliado seja
     // persistido mesmo antes que o setDbml(out) do handleEditorCommit seja processado.
     const dbmlToSave = explicitDbml !== undefined ? explicitDbml : dbml;
-    const canvas = { positions, colors, collapsedGroups, pages: canvasPages, activePageIds };
+    const canvas = { positions, sizes, colors, collapsedGroups, pages: canvasPages, activePageIds };
     const saveCall = currentProjectId
       ? api.saveProjectById(currentProjectId, dbmlToSave, canvas)
       : api.saveProject(dbmlToSave, canvas);
     saveCall
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('error'));
-  }, [currentProjectId, dbml, positions, colors, collapsedGroups, canvasPages, activePageIds]);
+  }, [currentProjectId, dbml, positions, sizes, colors, collapsedGroups, canvasPages, activePageIds]);
 
   // Auto-save: quando ativo, salva após 1.5s de dirty.
   useEffect(() => {
@@ -349,14 +380,14 @@ export default function App() {
 
   // Mantém o último modelo válido no canvas mesmo com erro de digitação no editor.
   const [canvasModel, setCanvasModel] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {},
   });
   useEffect(() => {
     if (!parsed.error) setCanvasModel(parsed);
   }, [parsed]);
 
   const [canvasModelDeferred, setCanvasModelDeferred] = useState<ParseResult>({
-    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [],
+    tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {},
   });
   useEffect(() => {
     if (!parsedDeferred.error) setCanvasModelDeferred(parsedDeferred);
@@ -824,7 +855,7 @@ export default function App() {
         resourceType: t.resourceType, materialization: t.materialization, tags: t.tags,
         has,
       };
-      const headerColor = colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
+      const headerColor = model.colors[t.id] ?? colors[t.id] ?? layerColorOf(layersArr, layerOf(t.id)) ?? '#13284b';
       const externalLinks = externalLinksByTable.get(t.id);
       const linked = linkedByTable.get(t.id);
       map.set(t.id, {
@@ -860,13 +891,9 @@ export default function App() {
       onRemoveTable: handleRemoveTable,
       onAddColumn: (table) => setDbml((d) => addColumn(d, table, 'nova_coluna', 'string')),
       colorOf: (id) => colorsRef.current[id],
-      onSetColor: (id, color) =>
-        setColors((prev) => {
-          const next = { ...prev };
-          if (color) next[id] = color;
-          else delete next[id];
-          return next;
-        }),
+      onSetColor: (id, color) => setDbml((d) => setTableColor(d, id, color)),
+      onSetGroupColor: (group, color) => setDbml((d) => setGroupColor(d, group, color)),
+      onResizeTable: (id, width) => setSizes((prev) => ({ ...prev, [id]: Math.round(width) })),
       layerOf,
       layerColorOf: (layerId) => layerColorOf(layersArrRef.current, layerId),
       onSetLayer: (id, layerId) =>
@@ -1059,7 +1086,7 @@ export default function App() {
         const parsed0 = parseDbml(dbml0);
         const groupPages = pagesFromTableGroups(
           parsed0.error
-            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [] }
+            ? { tables: [], refs: [], records: [], layerGroups: [], lineage: [], lineageFields: [], rolenames: [], colors: {} }
             : parsed0,
         );
         const pages0 =
@@ -1079,6 +1106,7 @@ export default function App() {
         setDbml(dbml0);
         prevDbmlRef.current = dbml0;
         setPositions(pos0);
+        setSizes(p.canvas?.sizes ?? {});
         setColors(col0);
         setCollapsedGroups(p.canvas?.collapsedGroups ?? []);
         setCanvasPages(pages0);
@@ -1285,8 +1313,14 @@ export default function App() {
         </span>
       </header>
 
-      <main className={`panes ${editorCollapsed ? 'panes--editor-collapsed' : ''}`}>
-        <section className="pane pane--editor">
+      <main
+        ref={panesRef}
+        className={`panes ${editorCollapsed ? 'panes--editor-collapsed' : ''}${resizingEditor ? ' panes--resizing' : ''}`}
+      >
+        <section
+          className="pane pane--editor"
+          style={editorWidth && !editorCollapsed ? { width: editorWidth } : undefined}
+        >
           <button
             type="button"
             className="pane-collapse"
@@ -1315,12 +1349,22 @@ export default function App() {
             onGoToError={() => setEditorCollapsed(false)}
           />
         </section>
+        {!editorCollapsed && (
+          <div
+            className="pane-resizer"
+            onMouseDown={startEditorResize}
+            title="Arraste para redimensionar o editor"
+            role="separator"
+            aria-orientation="vertical"
+          />
+        )}
         <section className="pane pane--canvas">
           <CanvasActionsCtx.Provider value={actions}>
             <Canvas
               parsed={canvasActiveModel}
               nodeExtras={nodeExtras}
               positions={positions}
+              sizes={sizes}
               onPositionsChange={setPositions}
               onCreateRef={handleCreateRef}
               onRemoveRef={handleRemoveRef}
@@ -1410,6 +1454,7 @@ export default function App() {
           <RecordsPanel
             records={activeModel.records}
             tables={activeModel.tables}
+            refs={activeModel.refs}
             dbml={dbml}
             onApply={(next) => {
               prevDbmlRef.current = next;

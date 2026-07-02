@@ -17,7 +17,7 @@ import {
   type ExternalGroupStub,
 } from './pageFilter';
 import { useCanvasEdges } from './hooks/useCanvasEdges';
-import { useCanvasNodes, useCanvasSelectionSync, type NodeExtras, type NodeOpts, type Positions } from './hooks/useCanvasNodes';
+import { useCanvasNodes, type NodeExtras, type NodeOpts, type Positions } from './hooks/useCanvasNodes';
 import { useInteraction } from '../store/interaction';
 import type { ParseResult, ParsedFieldLineage } from '../dsl/parse';
 import type { LineageLink } from '../api';
@@ -61,6 +61,7 @@ type Props = {
   /** Cor de cabeçalho + metadados pré-computados por tabela (memoização dos nós). */
   nodeExtras: NodeExtras;
   positions: Positions;
+  sizes: Record<string, number>;
   onPositionsChange: (p: Positions) => void;
   onCreateRef: (a: string, ac: string, b: string, bc: string) => void;
   onRemoveRef: (a: string, ac: string, b: string, bc: string) => void;
@@ -186,7 +187,7 @@ function FocusFieldMappingHelper() {
 }
 
 export function Canvas(props: Props) {
-  const { parsed, nodeExtras, positions, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
+  const { parsed, nodeExtras, positions, sizes, onPositionsChange, onCreateRef, onRemoveRef, onRemoveTable, onRemoveTables,
     staleWarning, lineage, lineageFields, onCreateLineage, onRemoveLineage, onRemoveFieldLineage, onCreateFieldLineage,
     layerOf, collapsedGroups, onToggleGroup, focusTableId, focusNonce, onFocusTableDone, fitViewTrigger,
     externalStubs = [], crossRefs = [] } = props;
@@ -263,7 +264,6 @@ export function Canvas(props: Props) {
     return set;
   }, [focusTables, parsed.refs, lineage, lineageFields, lineageMode, lineageVisible, fieldLineageVisible, crossRefs, aggregatedCrossLinks]);
 
-  const tableIds = useMemo(() => parsed.tables.map((t) => t.id), [parsed.tables]);
 
   // Visibilidade por camada + colapso → hidden/dim.
   const opts = useMemo<NodeOpts>(() => {
@@ -277,11 +277,12 @@ export function Canvas(props: Props) {
       if (groupHidden || (layerOff && !layerDimMode)) hidden.add(t.id);
       else if (layerOff && layerDimMode) dimmed.add(t.id);
     }
-    return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, onToggleGroup };
-  }, [parsed.tables, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
+    const groupColors: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed.colors)) if (k.startsWith('@')) groupColors[k.slice(1)] = v;
+    return { collapsedGroups: collapsed, hiddenTables: hidden, dimmedTables: dimmed, groupColors, onToggleGroup };
+  }, [parsed.tables, parsed.colors, collapsedGroups, hiddenLayers, layerDimMode, layerOf, onToggleGroup]);
 
-  useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs);
-  useCanvasSelectionSync(setNodes, selectedTableIds, tableIds);
+  useCanvasNodes(parsed, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds, sizes);
 
   useCanvasEdges(setEdges, {
     parsed,

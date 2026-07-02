@@ -26,6 +26,7 @@ export type NodeOpts = {
   collapsedGroups: Set<string>;
   hiddenTables: Set<string>; // escondidas (camada oculta ou grupo colapsado)
   dimmedTables: Set<string>; // esmaecidas (camada em modo esmaecer)
+  groupColors: Record<string, string>; // cor por TableGroup (nome -> hex)
   onToggleGroup: (name: string) => void;
 };
 
@@ -104,7 +105,7 @@ function groupNodes(
       id: `group:${name}`,
       type: 'group',
       position: { x: minX - pad, y: minY - pad - 16 },
-      data: { label: name, collapsed, count: boxes.length, onToggle: () => opts.onToggleGroup(name) },
+      data: { label: name, collapsed, count: boxes.length, color: opts.groupColors[name], onToggle: () => opts.onToggleGroup(name) },
       draggable: true,
       dragHandle: '.group-node__drag-handle',
       selectable: false,
@@ -125,6 +126,8 @@ export function useCanvasNodes(
   opts: NodeOpts,
   nodeExtras: NodeExtras,
   externalStubs: ExternalGroupStub[] = [],
+  selectedTableIds: string[] = [],
+  sizes: Record<string, number> = {},
 ): void {
   // Cache de `data` por id: preserva a identidade do objeto enquanto a assinatura de
   // conteúdo não muda, permitindo que `React.memo(TableNode)` pule re-renders das
@@ -136,6 +139,9 @@ export function useCanvasNodes(
       const prevPos = new Map(
         prev.filter((n) => n.type === 'table').map((n) => [n.id, n.position] as const),
       );
+      // `selected` vem do store (fonte única). Sem isso, o rebuild perde a seleção e o
+      // React Flow dispara onSelectionChange([]) logo após o clique (bug #7).
+      const selectedSet = new Set(selectedTableIds);
       const posOf = (t: TableView, i: number) =>
         positions[t.id] ?? prevPos.get(t.id) ?? gridPosition(i);
 
@@ -164,9 +170,13 @@ export function useCanvasNodes(
           type: 'table',
           position: posOf(t, i),
           data: entry.data,
+          selected: selectedSet.has(t.id),
           deletable: true,
           hidden: opts.hiddenTables.has(t.id),
-          style: opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : undefined,
+          style: {
+            ...(opts.dimmedTables.has(t.id) ? { opacity: 0.35 } : {}),
+            ...(sizes[t.id] ? { width: sizes[t.id] } : {}),
+          },
         };
       });
       for (const key of cache.keys()) if (!seen.has(key)) cache.delete(key);
@@ -181,29 +191,5 @@ export function useCanvasNodes(
       }));
       return [...groupNodes(parsed.tables, posOf, opts, false), ...stubNodes, ...tableNodes];
     });
-  }, [parsed.tables, positions, setNodes, opts, nodeExtras, externalStubs]);
-}
-
-/** Sincroniza `selected` nos nós de tabela sem rebuild estrutural (hover/seleção). */
-export function useCanvasSelectionSync(
-  setNodes: (updater: (prev: Node[]) => Node[]) => void,
-  selectedTableIds: string[],
-  tableIds: string[],
-): void {
-  const selectedSet = useMemo(() => new Set(selectedTableIds), [selectedTableIds]);
-  const structureKey = useMemo(() => tableIds.join('\u0000'), [tableIds]);
-
-  useEffect(() => {
-    setNodes((prev) => {
-      let changed = false;
-      const next = prev.map((n) => {
-        if (n.type !== 'table') return n;
-        const selected = selectedSet.has(n.id);
-        if (n.selected === selected) return n;
-        changed = true;
-        return { ...n, selected };
-      });
-      return changed ? next : prev;
-    });
-  }, [selectedSet, structureKey, setNodes]);
+  }, [parsed.tables, positions, setNodes, opts, nodeExtras, externalStubs, selectedTableIds, sizes]);
 }

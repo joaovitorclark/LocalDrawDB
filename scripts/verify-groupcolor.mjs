@@ -1,0 +1,17 @@
+import { chromium } from 'playwright-core';
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+const errors = [];
+page.on('pageerror', (e) => errors.push(String(e)));
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await page.goto('http://localhost:5192/', { waitUntil: 'networkidle' });
+await page.waitForSelector('.group-node', { timeout: 15000 });
+await page.waitForTimeout(700);
+const grp = page.locator('.group-node__label').filter({ hasText: 'dimensoes' }).first().locator('xpath=ancestor::*[contains(@class,"group-node")][1]');
+const border = await grp.evaluate((el) => getComputedStyle(el).borderColor);
+const labelBg = await page.locator('.group-node__label').filter({ hasText: 'dimensoes' }).first().evaluate((el)=>getComputedStyle(el).backgroundColor);
+console.log('borda do grupo dimensoes:', border, '(esperado ~rgb(21,128,61))');
+console.log('fundo do rótulo:', labelBg);
+console.log('erros:', errors.length ? errors : 'nenhum');
+await browser.close();

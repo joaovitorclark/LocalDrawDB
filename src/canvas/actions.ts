@@ -28,6 +28,10 @@ export type CanvasActions = {
   onAddColumn: (table: string) => void;
   colorOf: (tableId: string) => string | undefined;
   onSetColor: (tableId: string, color: string | null) => void;
+  /** Cor da caixa de um TableGroup. */
+  onSetGroupColor: (group: string, color: string | null) => void;
+  /** Largura definida ao redimensionar a tabela (arrastar o canto). */
+  onResizeTable: (tableId: string, width: number) => void;
   // layers
   layerOf: (tableId: string) => string | undefined;
   layerColorOf: (layerId?: string) => string | undefined;
@@ -71,4 +75,7 @@ export function useCanvasActions(): CanvasActions {
 }
 
 /** Paleta de cores para o cabeçalho das tabelas (Unimed + neutros). */
-export const TABLE_COLORS = ['#13284b', '#00995d', '#1c3a6b', '#b5651d', '#6b21a8', '#475569'];
+export const TABLE_COLORS = [
+  '#13284b', '#1c3a6b', '#0e7490', '#00995d', '#15803d', '#a16207',
+  '#b5651d', '#b08d57', '#b91c1c', '#be185d', '#6b21a8', '#475569',
+];

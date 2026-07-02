@@ -2,14 +2,27 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ParsedRecords } from '../dsl/records';
 import { getColumnSettings, setColumnSetting, setTableOrRecordsNote } from '../dsl/edit';
 import { useInteraction } from '../store/interaction';
-import type { TableView } from '../dsl/parse';
+import type { RefView, TableView } from '../dsl/parse';
 
 type Props = {
   records: ParsedRecords[];
   tables: TableView[];
+  refs: RefView[];
   dbml: string;
   onApply: (next: string) => void;
 };
+
+/** Constraints da tabela ativa, derivadas das colunas (pk/notNull) e dos refs (FK). */
+function tableConstraints(table: TableView | undefined, refs: RefView[]) {
+  if (!table) return { pks: [] as string[], composites: [] as string[][], fks: [] as { col: string; target: string }[], notNull: [] as string[] };
+  const pks = table.columns.filter((c) => c.pk).map((c) => c.name);
+  const composites = (table.compositePks ?? []).filter((g) => g.length > 1);
+  const notNull = table.columns.filter((c) => c.notNull && !c.pk).map((c) => c.name);
+  const fks = refs
+    .filter((r) => r.source === table.id || r.source === table.name)
+    .map((r) => ({ col: r.fromCol, target: `${r.target}.${r.toCol}` }));
+  return { pks, composites, fks, notNull };
+}
 
 function NoteField({
   label,
@@ -50,7 +63,7 @@ function NoteField({
   );
 }
 
-export function RecordsPanel({ records, tables, dbml, onApply }: Props) {
+export function RecordsPanel({ records, tables, refs, dbml, onApply }: Props) {
   const [open, setOpen] = useState(true);
   const selectedTable = useInteraction((s) => s.selectedTable);
   const selectedColumn = useInteraction((s) => s.selectedColumn);
@@ -76,6 +89,13 @@ export function RecordsPanel({ records, tables, dbml, onApply }: Props) {
     () => (effectiveTableId ? tables.find((t) => t.id === effectiveTableId) : undefined),
     [effectiveTableId, tables],
   );
+
+  const constraints = useMemo(() => tableConstraints(activeTable, refs), [activeTable, refs]);
+  const hasConstraints =
+    constraints.pks.length > 0 ||
+    constraints.composites.length > 0 ||
+    constraints.fks.length > 0 ||
+    constraints.notNull.length > 0;
 
   const activeRecord = useMemo(() => {
     if (!effectiveTableId) return undefined;
@@ -145,6 +165,34 @@ export function RecordsPanel({ records, tables, dbml, onApply }: Props) {
                   placeholder="Descrição da coluna…"
                   onChange={applyColumnNote}
                 />
+              )}
+              {hasConstraints && (
+                <div className="records-constraints">
+                  <div className="records-constraints__title">Constraints</div>
+                  {constraints.pks.length > 0 && (
+                    <div className="records-constraints__row">
+                      <span className="records-constraints__tag records-constraints__tag--pk">PK</span>
+                      {constraints.pks.join(', ')}
+                    </div>
+                  )}
+                  {constraints.composites.map((g, i) => (
+                    <div key={`cpk:${i}`} className="records-constraints__row">
+                      <span className="records-constraints__tag records-constraints__tag--pk">PK</span>({g.join(', ')})
+                    </div>
+                  ))}
+                  {constraints.fks.map((fk, i) => (
+                    <div key={`fk:${i}`} className="records-constraints__row">
+                      <span className="records-constraints__tag records-constraints__tag--fk">FK</span>
+                      {fk.col} → {fk.target}
+                    </div>
+                  ))}
+                  {constraints.notNull.length > 0 && (
+                    <div className="records-constraints__row">
+                      <span className="records-constraints__tag">NOT NULL</span>
+                      {constraints.notNull.join(', ')}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}

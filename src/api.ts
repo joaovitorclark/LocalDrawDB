@@ -13,6 +13,8 @@ export type CanvasPage = {
 
 export type CanvasState = {
   positions?: Record<string, { x: number; y: number }>;
+  /** Largura por tabela quando redimensionada (px). */
+  sizes?: Record<string, number>;
   colors?: Record<string, string>;
   layers?: Record<string, string>; // tableId -> layerId
   customLayers?: Layer[];

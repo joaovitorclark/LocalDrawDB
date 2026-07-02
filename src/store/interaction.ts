@@ -61,7 +61,8 @@ export const useInteraction = create<InteractionState>((set) => ({
   selectColumn: (sel) =>
     set({
       selectedColumn: sel,
-      ...(sel ? { selectedTable: null, selectedTableIds: [], selectedGroup: null } : {}),
+      // Selecionar uma coluna também seleciona a tabela dela (#7b): borda verde + dados.
+      ...(sel ? { selectedTable: sel.table, selectedTableIds: [sel.table], selectedGroup: null } : {}),
     }),
   selectedTable: null,
   selectedTableIds: [],

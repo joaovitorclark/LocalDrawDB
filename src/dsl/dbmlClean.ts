@@ -310,7 +310,21 @@ export function parseRolenamesBlock(block: string): ParsedRolename[] {
   return out;
 }
 
-const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt', 'rolenames']);
+export type ParsedColor = { table: string; color: string };
+
+/** Parse de `Colors { table.id: #hex }` — cor por tabela, persistida no script. */
+export function parseColorsBlock(block: string): ParsedColor[] {
+  const out: ParsedColor[] = [];
+  for (const raw of block.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//') || /^Colors\s*\{/i.test(line) || line === '}') continue;
+    const m = /^("?[^"\s:]+"?)\s*:\s*(#[0-9a-fA-F]{3,8}|[A-Za-z]+)/.exec(line);
+    if (m) out.push({ table: m[1].replace(/["`]/g, ''), color: m[2] });
+  }
+  return out;
+}
+
+const CUSTOM_TYPES = new Set(['records', 'layerGroup', 'lineage', 'lineageFields', 'dbt', 'rolenames', 'colors']);
 
 /** Remove blocos extras antes do @dbml/core. */
 export function cleanDbml(src: string): string {
@@ -325,6 +339,32 @@ export function cleanDbml(src: string): string {
 /** Mapeia linha 0-based do buffer "clean" (sem blocos custom) → linha 0-based no editor. */
 export type CleanLineMap = (cleanLine0: number) => number;
 
+/**
+ * Move as linhas `Note:` de um bloco Table para logo antes do `}` (o @dbml/core só
+ * aceita Note no fim). Reordena as origens junto para preservar o mapeamento de erro.
+ * Aplicado só na versão "clean" — o source mantém o Note onde o usuário escreveu.
+ */
+function moveTableNotesToEnd(
+  lines: string[],
+  origins: number[],
+): { lines: string[]; origins: number[] } {
+  const closeIdx = lines.map((l) => l.trim()).lastIndexOf('}');
+  if (closeIdx <= 0) return { lines, origins };
+  const isNote = (l: string) => /^\s*Note\s*:/i.test(l);
+  const noteAt = new Set<number>();
+  for (let i = 0; i < closeIdx; i++) if (isNote(lines[i])) noteAt.add(i);
+  if (!noteAt.size) return { lines, origins };
+  const body: string[] = [], bodyO: number[] = [], notes: string[] = [], notesO: number[] = [];
+  for (let i = 0; i < closeIdx; i++) {
+    if (noteAt.has(i)) { notes.push(lines[i]); notesO.push(origins[i]); }
+    else { body.push(lines[i]); bodyO.push(origins[i]); }
+  }
+  return {
+    lines: [...body, ...notes, ...lines.slice(closeIdx)],
+    origins: [...bodyO, ...notesO, ...origins.slice(closeIdx)],
+  };
+}
+
 function buildCleanFromBlocks(
   blocks: ReturnType<typeof splitDbmlBlocks>,
 ): { clean: string; mapCleanLineToOriginal: CleanLineMap } {
@@ -333,9 +373,11 @@ function buildCleanFromBlocks(
   for (const b of blocks) {
     if (CUSTOM_TYPES.has(b.type) || b.type === 'blank') continue;
     const start = b.lineStart ?? 0;
-    const blines = b.text.split('\n');
-    for (let i = 0; i < blines.length; i++) lineOrigins.push(start + i);
-    keepTexts.push(b.text);
+    let blines = b.text.split('\n');
+    let origins = blines.map((_, i) => start + i);
+    if (b.type === 'table') ({ lines: blines, origins } = moveTableNotesToEnd(blines, origins));
+    for (const o of origins) lineOrigins.push(o);
+    keepTexts.push(blines.join('\n'));
   }
   const mapCleanLineToOriginal = (cleanLine0: number) => lineOrigins[cleanLine0] ?? cleanLine0;
   return { clean: keepTexts.join('\n'), mapCleanLineToOriginal };
@@ -350,6 +392,7 @@ export function extractRecords(src: string): {
   lineageFields: ParsedFieldLineage[];
   dbtTables: ParsedDbtTable[];
   rolenames: ParsedRolename[];
+  colors: ParsedColor[];
   mapCleanLineToOriginal: CleanLineMap;
 } {
   const blocks = splitDbmlBlocks(src);
@@ -359,6 +402,7 @@ export function extractRecords(src: string): {
   const lineageFields: ParsedFieldLineage[] = [];
   const dbtTables: ParsedDbtTable[] = [];
   const rolenames: ParsedRolename[] = [];
+  const colors: ParsedColor[] = [];
   for (const b of blocks) {
     if (b.type === 'records') {
       const pr = parseRecords(b.text);
@@ -374,8 +418,10 @@ export function extractRecords(src: string): {
       dbtTables.push(...parseDbtBlock(b.text));
     } else if (b.type === 'rolenames') {
       rolenames.push(...parseRolenamesBlock(b.text));
+    } else if (b.type === 'colors') {
+      colors.push(...parseColorsBlock(b.text));
     }
   }
   const { clean, mapCleanLineToOriginal } = buildCleanFromBlocks(blocks);
-  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, rolenames, mapCleanLineToOriginal };
+  return { clean, records, layerGroups, lineage, lineageFields, dbtTables, rolenames, colors, mapCleanLineToOriginal };
 }
